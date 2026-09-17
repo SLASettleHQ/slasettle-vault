@@ -6,7 +6,7 @@ mod storage;
 #[cfg(test)]
 mod test;
 
-use events::SlaCreated;
+use events::{BondToppedUp, SlaCreated};
 use soroban_sdk::{contract, contractimpl, token, Address, Env};
 use storage::{DataKey, Error, SLAConfig, SLAStatus};
 
@@ -131,5 +131,41 @@ impl SlaVault {
             .persistent()
             .get(&DataKey::BondBalance(sla_id))
             .unwrap_or(0)
+    }
+
+    /// Auth: `caller`, and `caller` must be the SLA's original provider.
+    /// Adds `amount` of the SLA's own token to its bond balance.
+    pub fn top_up_bond(env: Env, caller: Address, sla_id: u64, amount: i128) -> Result<(), Error> {
+        caller.require_auth();
+
+        if amount <= 0 {
+            return Err(Error::InvalidAmount);
+        }
+
+        let config: SLAConfig = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Sla(sla_id))
+            .ok_or(Error::SlaNotFound)?;
+
+        if config.provider != caller {
+            return Err(Error::NotAuthorized);
+        }
+
+        let token_client = token::Client::new(&env, &config.token);
+        token_client.transfer(&caller, &env.current_contract_address(), &amount);
+
+        let balance_key = DataKey::BondBalance(sla_id);
+        let balance: i128 = env.storage().persistent().get(&balance_key).unwrap_or(0);
+        env.storage().persistent().set(&balance_key, &(balance + amount));
+        env.storage().persistent().extend_ttl(
+            &balance_key,
+            storage::PERSISTENT_TTL_THRESHOLD,
+            storage::PERSISTENT_TTL_EXTEND_TO,
+        );
+
+        BondToppedUp { sla_id, amount }.publish(&env);
+
+        Ok(())
     }
 }

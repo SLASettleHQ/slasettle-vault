@@ -125,3 +125,64 @@ fn test_create_sla_zero_penalty_fails() {
     );
     assert_eq!(result, Err(Ok(Error::InvalidAmount)));
 }
+
+fn create_test_sla(
+    env: &Env,
+    client: &SlaVaultClient<'static>,
+    admin: &Address,
+) -> (u64, Address, Address, Address) {
+    let (token_id, asset_client) = setup_token(env, admin);
+    let provider = Address::generate(env);
+    let beneficiary = Address::generate(env);
+    asset_client.mint(&provider, &10_000i128);
+
+    let sla_id = client.create_sla(
+        &provider,
+        &token_id,
+        &1_000i128,
+        &9990u32,
+        &3u32,
+        &500i128,
+        &beneficiary,
+    );
+
+    (sla_id, provider, beneficiary, token_id)
+}
+
+#[test]
+fn test_top_up_bond_increases_balance() {
+    let (env, client, admin, _registry) = setup();
+    let (sla_id, provider, _beneficiary, _token) = create_test_sla(&env, &client, &admin);
+
+    client.top_up_bond(&provider, &sla_id, &300i128);
+
+    assert_eq!(client.get_bond_balance(&sla_id), 1_300i128);
+}
+
+#[test]
+fn test_top_up_bond_by_non_provider_fails() {
+    let (env, client, admin, _registry) = setup();
+    let (sla_id, _provider, _beneficiary, _token) = create_test_sla(&env, &client, &admin);
+    let not_provider = Address::generate(&env);
+
+    let result = client.try_top_up_bond(&not_provider, &sla_id, &300i128);
+    assert_eq!(result, Err(Ok(Error::NotAuthorized)));
+}
+
+#[test]
+fn test_top_up_bond_zero_amount_fails() {
+    let (env, client, admin, _registry) = setup();
+    let (sla_id, provider, _beneficiary, _token) = create_test_sla(&env, &client, &admin);
+
+    let result = client.try_top_up_bond(&provider, &sla_id, &0i128);
+    assert_eq!(result, Err(Ok(Error::InvalidAmount)));
+}
+
+#[test]
+fn test_top_up_bond_unknown_sla_fails() {
+    let (env, client, admin, _registry) = setup();
+    let (_sla_id, provider, _beneficiary, _token) = create_test_sla(&env, &client, &admin);
+
+    let result = client.try_top_up_bond(&provider, &999u64, &300i128);
+    assert_eq!(result, Err(Ok(Error::SlaNotFound)));
+}
