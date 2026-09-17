@@ -247,7 +247,7 @@ fn test_trigger_settlement_twice_same_round_fails() {
 
 #[test]
 fn test_trigger_settlement_unknown_sla_fails() {
-    let (env, client, admin, _registry) = setup();
+    let (_env, client, admin, _registry) = setup();
 
     let result = client.try_trigger_settlement(&admin, &999u64, &1u64);
     assert_eq!(result, Err(Ok(Error::SlaNotFound)));
