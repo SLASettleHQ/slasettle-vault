@@ -99,4 +99,17 @@ impl WatcherRegistry {
 
         Ok(())
     }
+
+    /// Public view. True if `watcher` is currently in the eligible set.
+    pub fn is_watcher(env: Env, watcher: Address) -> bool {
+        env.storage().persistent().has(&DataKey::Watcher(watcher))
+    }
+
+    /// Public view. Total number of currently eligible watchers.
+    pub fn get_watcher_count(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&DataKey::WatcherCount)
+            .unwrap_or(0)
+    }
 }
