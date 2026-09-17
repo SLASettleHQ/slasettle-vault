@@ -55,3 +55,13 @@ pub enum Error {
     ContractPaused = 8,
     SlaNotFound = 9,
 }
+
+/// TTL extension window for persistent entries (Sla, BondBalance,
+/// SettledRounds), in ledgers. Rounds are 60 seconds and ledgers close
+/// roughly every 5 seconds, so 60 / 5 = 12 ledgers per round. We extend far
+/// past a single round, covering roughly 30 days (~518400 ledgers), so an
+/// SLA's config and settlement history don't silently expire between checks.
+/// This is a v1 constant, not tuned against real storage-rent cost data yet —
+/// revisit once there's real usage to measure against.
+pub const PERSISTENT_TTL_EXTEND_TO: u32 = 518_400;
+pub const PERSISTENT_TTL_THRESHOLD: u32 = 518_400 - 17_280; // extend once within ~1 day of expiry
