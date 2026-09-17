@@ -6,7 +6,7 @@ mod storage;
 #[cfg(test)]
 mod test;
 
-use events::{BondToppedUp, SettlementPaid, SlaCancelled, SlaCreated};
+use events::{BondToppedUp, BondWithdrawn, SettlementPaid, SlaCancelled, SlaCreated};
 use soroban_sdk::{contract, contractimpl, token, Address, Env};
 use storage::{DataKey, Error, SLAConfig, SLAStatus};
 
@@ -283,6 +283,44 @@ impl SlaVault {
         env.storage().persistent().set(&sla_key, &config);
 
         SlaCancelled { sla_id }.publish(&env);
+
+        Ok(())
+    }
+
+    /// Auth: `caller`, must be the SLA's provider. Requires the SLA is
+    /// already Cancelled — reusing SlaNotActive as the error here on
+    /// purpose, since the condition is the same either way: "you can't
+    /// touch this bond while the SLA is still live."
+    pub fn withdraw_remaining_bond(env: Env, caller: Address, sla_id: u64) -> Result<(), Error> {
+        caller.require_auth();
+
+        let config: SLAConfig = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Sla(sla_id))
+            .ok_or(Error::SlaNotFound)?;
+
+        if config.provider != caller {
+            return Err(Error::NotAuthorized);
+        }
+        if config.status != SLAStatus::Cancelled {
+            return Err(Error::SlaNotActive);
+        }
+
+        let balance_key = DataKey::BondBalance(sla_id);
+        let balance: i128 = env.storage().persistent().get(&balance_key).unwrap_or(0);
+
+        if balance > 0 {
+            let token_client = token::Client::new(&env, &config.token);
+            token_client.transfer(&env.current_contract_address(), &caller, &balance);
+            env.storage().persistent().set(&balance_key, &0i128);
+        }
+
+        BondWithdrawn {
+            sla_id,
+            amount: balance,
+        }
+        .publish(&env);
 
         Ok(())
     }

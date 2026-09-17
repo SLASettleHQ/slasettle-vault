@@ -315,3 +315,61 @@ fn test_cancelled_sla_cannot_be_settled() {
     let result = client.try_trigger_settlement(&admin, &sla_id, &1u64);
     assert_eq!(result, Err(Ok(Error::SlaNotActive)));
 }
+
+#[test]
+fn test_withdraw_remaining_bond_after_cancel_succeeds() {
+    let (env, client, admin, _registry) = setup();
+    let (sla_id, provider, _beneficiary, token_id) = create_test_sla(&env, &client, &admin);
+    client.cancel_sla(&provider, &sla_id);
+
+    client.withdraw_remaining_bond(&provider, &sla_id);
+
+    assert_eq!(client.get_bond_balance(&sla_id), 0i128);
+    let token_client = token::Client::new(&env, &token_id);
+    assert_eq!(token_client.balance(&provider), 10_000i128); // full 1000 returned
+}
+
+#[test]
+fn test_withdraw_remaining_bond_without_cancel_fails() {
+    let (env, client, admin, _registry) = setup();
+    let (sla_id, provider, _beneficiary, _token) = create_test_sla(&env, &client, &admin);
+
+    let result = client.try_withdraw_remaining_bond(&provider, &sla_id);
+    assert_eq!(result, Err(Ok(Error::SlaNotActive)));
+}
+
+#[test]
+fn test_withdraw_remaining_bond_by_non_provider_fails() {
+    let (env, client, admin, _registry) = setup();
+    let (sla_id, provider, _beneficiary, _token) = create_test_sla(&env, &client, &admin);
+    client.cancel_sla(&provider, &sla_id);
+    let not_provider = Address::generate(&env);
+
+    let result = client.try_withdraw_remaining_bond(&not_provider, &sla_id);
+    assert_eq!(result, Err(Ok(Error::NotAuthorized)));
+}
+
+#[test]
+fn test_withdraw_remaining_bond_unknown_sla_fails() {
+    let (env, client, admin, _registry) = setup();
+    let (_sla_id, provider, _beneficiary, _token) = create_test_sla(&env, &client, &admin);
+
+    let result = client.try_withdraw_remaining_bond(&provider, &999u64);
+    assert_eq!(result, Err(Ok(Error::SlaNotFound)));
+}
+
+#[test]
+fn test_withdraw_remaining_bond_after_partial_settlement_returns_what_is_left() {
+    let (env, client, admin, registry) = setup();
+    let (sla_id, provider, beneficiary, token_id) = create_test_sla(&env, &client, &admin);
+    register_and_vote_down(&env, &registry, &admin, sla_id, 1, 3);
+    client.trigger_settlement(&admin, &sla_id, &1u64); // balance now 500
+    client.cancel_sla(&provider, &sla_id);
+
+    client.withdraw_remaining_bond(&provider, &sla_id);
+
+    let token_client = token::Client::new(&env, &token_id);
+    assert_eq!(token_client.balance(&provider), 9_500i128); // 10000 - 1000 + 500 back
+    assert_eq!(token_client.balance(&beneficiary), 500i128);
+    assert_eq!(client.get_bond_balance(&sla_id), 0i128);
+}
