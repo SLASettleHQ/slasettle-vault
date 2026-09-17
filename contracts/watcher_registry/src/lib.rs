@@ -6,7 +6,7 @@ mod storage;
 #[cfg(test)]
 mod test;
 
-use events::WatcherRegistered;
+use events::{WatcherRegistered, WatcherRemoved};
 use soroban_sdk::{contract, contractimpl, Address, Env};
 use storage::{DataKey, Error};
 
@@ -70,6 +70,32 @@ impl WatcherRegistry {
             .set(&DataKey::WatcherCount, &(count + 1));
 
         WatcherRegistered { watcher }.publish(&env);
+
+        Ok(())
+    }
+
+    /// Auth: Admin. Removes `watcher` from the eligible set. A no-op if the
+    /// address was not registered, symmetric with register_watcher.
+    pub fn remove_watcher(env: Env, caller: Address, watcher: Address) -> Result<(), Error> {
+        require_admin(&env, &caller)?;
+
+        let key = DataKey::Watcher(watcher.clone());
+        if !env.storage().persistent().has(&key) {
+            return Ok(());
+        }
+
+        env.storage().persistent().remove(&key);
+
+        let count: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::WatcherCount)
+            .unwrap_or(0);
+        env.storage()
+            .instance()
+            .set(&DataKey::WatcherCount, &count.saturating_sub(1));
+
+        WatcherRemoved { watcher }.publish(&env);
 
         Ok(())
     }
