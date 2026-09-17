@@ -10,6 +10,19 @@ use events::WatcherRegistered;
 use soroban_sdk::{contract, contractimpl, Address, Env};
 use storage::{DataKey, Error};
 
+fn require_admin(env: &Env, caller: &Address) -> Result<(), Error> {
+    caller.require_auth();
+    let admin: Address = env
+        .storage()
+        .instance()
+        .get(&DataKey::Admin)
+        .ok_or(Error::NotAuthorized)?;
+    if &admin != caller {
+        return Err(Error::NotAuthorized);
+    }
+    Ok(())
+}
+
 #[contract]
 pub struct WatcherRegistry;
 
@@ -25,6 +38,38 @@ impl WatcherRegistry {
 
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage().instance().set(&DataKey::WatcherCount, &0u32);
+
+        Ok(())
+    }
+
+    /// Auth: Admin. Adds `watcher` to the eligible set. A no-op, not an
+    /// error, if the address is already registered — re-registering an
+    /// existing watcher shouldn't double-count WatcherCount.
+    pub fn register_watcher(env: Env, caller: Address, watcher: Address) -> Result<(), Error> {
+        require_admin(&env, &caller)?;
+
+        let key = DataKey::Watcher(watcher.clone());
+        if env.storage().persistent().has(&key) {
+            return Ok(());
+        }
+
+        env.storage().persistent().set(&key, &true);
+        env.storage().persistent().extend_ttl(
+            &key,
+            storage::PERSISTENT_TTL_THRESHOLD,
+            storage::PERSISTENT_TTL_EXTEND_TO,
+        );
+
+        let count: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::WatcherCount)
+            .unwrap_or(0);
+        env.storage()
+            .instance()
+            .set(&DataKey::WatcherCount, &(count + 1));
+
+        WatcherRegistered { watcher }.publish(&env);
 
         Ok(())
     }
