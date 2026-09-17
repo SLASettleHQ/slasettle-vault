@@ -6,7 +6,7 @@ mod storage;
 #[cfg(test)]
 mod test;
 
-use events::{BondToppedUp, SettlementPaid, SlaCreated};
+use events::{BondToppedUp, SettlementPaid, SlaCancelled, SlaCreated};
 use soroban_sdk::{contract, contractimpl, token, Address, Env};
 use storage::{DataKey, Error, SLAConfig, SLAStatus};
 
@@ -258,5 +258,32 @@ impl SlaVault {
             .persistent()
             .get(&DataKey::SettledRounds(sla_id, round_id))
             .unwrap_or(false)
+    }
+
+    /// Auth: `caller`, must be the SLA's provider. Marks the SLA Cancelled.
+    /// This is a required, visible step before withdraw_remaining_bond will
+    /// allow anything — a provider cannot quietly drain their bond while
+    /// still advertising an active guarantee. Cancelling is a public state
+    /// change anyone watching the status page can see.
+    pub fn cancel_sla(env: Env, caller: Address, sla_id: u64) -> Result<(), Error> {
+        caller.require_auth();
+
+        let sla_key = DataKey::Sla(sla_id);
+        let mut config: SLAConfig = env
+            .storage()
+            .persistent()
+            .get(&sla_key)
+            .ok_or(Error::SlaNotFound)?;
+
+        if config.provider != caller {
+            return Err(Error::NotAuthorized);
+        }
+
+        config.status = SLAStatus::Cancelled;
+        env.storage().persistent().set(&sla_key, &config);
+
+        SlaCancelled { sla_id }.publish(&env);
+
+        Ok(())
     }
 }

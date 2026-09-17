@@ -274,3 +274,44 @@ fn test_trigger_settlement_caps_payout_at_remaining_balance() {
     let token_client = token::Client::new(&env, &token_id);
     assert_eq!(token_client.balance(&beneficiary), 1_000i128); // 500 + 500, capped correctly both times
 }
+
+#[test]
+fn test_cancel_sla_by_provider_succeeds() {
+    let (env, client, admin, _registry) = setup();
+    let (sla_id, provider, _beneficiary, _token) = create_test_sla(&env, &client, &admin);
+
+    client.cancel_sla(&provider, &sla_id);
+
+    let config = client.get_sla(&sla_id);
+    assert_eq!(config.status, crate::storage::SLAStatus::Cancelled);
+}
+
+#[test]
+fn test_cancel_sla_by_non_provider_fails() {
+    let (env, client, admin, _registry) = setup();
+    let (sla_id, _provider, _beneficiary, _token) = create_test_sla(&env, &client, &admin);
+    let not_provider = Address::generate(&env);
+
+    let result = client.try_cancel_sla(&not_provider, &sla_id);
+    assert_eq!(result, Err(Ok(Error::NotAuthorized)));
+}
+
+#[test]
+fn test_cancel_sla_unknown_id_fails() {
+    let (env, client, admin, _registry) = setup();
+    let (_sla_id, provider, _beneficiary, _token) = create_test_sla(&env, &client, &admin);
+
+    let result = client.try_cancel_sla(&provider, &999u64);
+    assert_eq!(result, Err(Ok(Error::SlaNotFound)));
+}
+
+#[test]
+fn test_cancelled_sla_cannot_be_settled() {
+    let (env, client, admin, registry) = setup();
+    let (sla_id, provider, _beneficiary, _token) = create_test_sla(&env, &client, &admin);
+    register_and_vote_down(&env, &registry, &admin, sla_id, 1, 3);
+    client.cancel_sla(&provider, &sla_id);
+
+    let result = client.try_trigger_settlement(&admin, &sla_id, &1u64);
+    assert_eq!(result, Err(Ok(Error::SlaNotActive)));
+}
