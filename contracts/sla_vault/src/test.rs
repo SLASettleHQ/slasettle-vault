@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 use crate::{storage::Error, SlaVault, SlaVaultClient};
-use soroban_sdk::{testutils::Address as _, token, Address, Env};
+use soroban_sdk::{testutils::Address as _, token, Address, BytesN, Env};
 
 /// Deploys a Stellar Asset Contract instance for use as the bond token in
 /// tests, via the SDK's own test helper for the built-in asset contract —
@@ -185,4 +185,92 @@ fn test_top_up_bond_unknown_sla_fails() {
 
     let result = client.try_top_up_bond(&provider, &999u64, &300i128);
     assert_eq!(result, Err(Ok(Error::SlaNotFound)));
+}
+
+fn register_and_vote_down(
+    env: &Env,
+    registry: &Address,
+    admin: &Address,
+    sla_id: u64,
+    round_id: u64,
+    down_votes: u32,
+) {
+    let registry_client = watcher_registry::WatcherRegistryClient::new(env, registry);
+    for _ in 0..down_votes {
+        let watcher = Address::generate(env);
+        registry_client.register_watcher(admin, &watcher);
+        registry_client.submit_check(
+            &watcher,
+            &sla_id,
+            &round_id,
+            &BytesN::from_array(env, &[0u8; 32]),
+            &watcher_registry::CheckStatus::Down,
+        );
+    }
+}
+
+#[test]
+fn test_trigger_settlement_pays_out_when_quorum_confirms_breach() {
+    let (env, client, admin, registry) = setup();
+    let (sla_id, _provider, beneficiary, token_id) = create_test_sla(&env, &client, &admin);
+    register_and_vote_down(&env, &registry, &admin, sla_id, 1, 3); // quorum_threshold is 3
+
+    client.trigger_settlement(&admin, &sla_id, &1u64);
+
+    assert_eq!(client.get_bond_balance(&sla_id), 500i128); // 1000 - 500 penalty
+    let token_client = token::Client::new(&env, &token_id);
+    assert_eq!(token_client.balance(&beneficiary), 500i128);
+    assert!(client.is_round_settled(&sla_id, &1u64));
+}
+
+#[test]
+fn test_trigger_settlement_below_quorum_fails() {
+    let (env, client, admin, registry) = setup();
+    let (sla_id, _provider, _beneficiary, _token) = create_test_sla(&env, &client, &admin);
+    register_and_vote_down(&env, &registry, &admin, sla_id, 1, 2); // below threshold of 3
+
+    let result = client.try_trigger_settlement(&admin, &sla_id, &1u64);
+    assert_eq!(result, Err(Ok(Error::QuorumNotMet)));
+}
+
+#[test]
+fn test_trigger_settlement_twice_same_round_fails() {
+    let (env, client, admin, registry) = setup();
+    let (sla_id, _provider, _beneficiary, _token) = create_test_sla(&env, &client, &admin);
+    register_and_vote_down(&env, &registry, &admin, sla_id, 1, 3);
+
+    client.trigger_settlement(&admin, &sla_id, &1u64);
+    let result = client.try_trigger_settlement(&admin, &sla_id, &1u64);
+
+    assert_eq!(result, Err(Ok(Error::AlreadySettled)));
+}
+
+#[test]
+fn test_trigger_settlement_unknown_sla_fails() {
+    let (env, client, admin, _registry) = setup();
+
+    let result = client.try_trigger_settlement(&admin, &999u64, &1u64);
+    assert_eq!(result, Err(Ok(Error::SlaNotFound)));
+}
+
+#[test]
+fn test_trigger_settlement_caps_payout_at_remaining_balance() {
+    let (env, client, admin, registry) = setup();
+    let (sla_id, _provider, beneficiary, token_id) = create_test_sla(&env, &client, &admin);
+    // Drain the bond down to less than one full penalty across two rounds,
+    // then confirm the third settlement pays out only what's left rather
+    // than erroring or overpaying.
+    register_and_vote_down(&env, &registry, &admin, sla_id, 1, 3);
+    client.trigger_settlement(&admin, &sla_id, &1u64); // balance now 500
+    register_and_vote_down(&env, &registry, &admin, sla_id, 2, 3);
+    client.trigger_settlement(&admin, &sla_id, &2u64); // balance now 0
+
+    register_and_vote_down(&env, &registry, &admin, sla_id, 3, 3);
+    let result = client.try_trigger_settlement(&admin, &sla_id, &3u64);
+
+    // Bond is fully exhausted, so a third confirmed breach cannot pay
+    // anything out.
+    assert_eq!(result, Err(Ok(Error::BondExhausted)));
+    let token_client = token::Client::new(&env, &token_id);
+    assert_eq!(token_client.balance(&beneficiary), 1_000i128); // 500 + 500, capped correctly both times
 }

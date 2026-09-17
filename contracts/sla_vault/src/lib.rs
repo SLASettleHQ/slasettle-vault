@@ -6,7 +6,7 @@ mod storage;
 #[cfg(test)]
 mod test;
 
-use events::{BondToppedUp, SlaCreated};
+use events::{BondToppedUp, SettlementPaid, SlaCreated};
 use soroban_sdk::{contract, contractimpl, token, Address, Env};
 use storage::{DataKey, Error, SLAConfig, SLAStatus};
 
@@ -167,5 +167,96 @@ impl SlaVault {
         BondToppedUp { sla_id, amount }.publish(&env);
 
         Ok(())
+    }
+
+    /// No `require_auth` on `caller` at all — this is the permissionless
+    /// keeper function, deliberately. `caller` is recorded only in the
+    /// event, not authorized, because they aren't moving any of their own
+    /// funds. Anyone can call this the moment they believe quorum has
+    /// formed; the idempotency check below (step 2) is what makes that
+    /// safe.
+    ///
+    /// Every step here is a real, distinct check. Do not collapse them.
+    pub fn trigger_settlement(env: Env, caller: Address, sla_id: u64, round_id: u64) -> Result<(), Error> {
+        // 1. Load config, must exist and be Active.
+        let config: SLAConfig = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Sla(sla_id))
+            .ok_or(Error::SlaNotFound)?;
+        if config.status != SLAStatus::Active {
+            return Err(Error::SlaNotActive);
+        }
+
+        // 2. Idempotency — one payout per round, ever.
+        let settled_key = DataKey::SettledRounds(sla_id, round_id);
+        if env.storage().persistent().get(&settled_key).unwrap_or(false) {
+            return Err(Error::AlreadySettled);
+        }
+
+        // 3. Cross-contract call to watcher_registry for the raw tally.
+        //    sla_vault owns quorum interpretation; watcher_registry only
+        //    counts. Do not move this logic into the registry.
+        let registry_address: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::WatcherRegistry)
+            .ok_or(Error::NotAuthorized)?;
+        let registry_client = watcher_registry::WatcherRegistryClient::new(&env, &registry_address);
+        let tally = registry_client.get_round_tally(&sla_id, &round_id);
+
+        // 4. Quorum check, sla_vault's judgment call.
+        if tally.votes_down < config.quorum_threshold {
+            return Err(Error::QuorumNotMet);
+        }
+
+        // 5. Payout capped at what's actually left in the bond.
+        let balance_key = DataKey::BondBalance(sla_id);
+        let balance: i128 = env.storage().persistent().get(&balance_key).unwrap_or(0);
+        let payout = if config.penalty_per_breach < balance {
+            config.penalty_per_breach
+        } else {
+            balance
+        };
+        if payout <= 0 {
+            return Err(Error::BondExhausted);
+        }
+
+        // 6. Transfer, decrement balance, mark settled, emit. In that
+        //    order — the balance write and the settled-flag write both
+        //    happen before the event, so a reader of the event can trust
+        //    both are already true on-chain.
+        let token_client = token::Client::new(&env, &config.token);
+        token_client.transfer(&env.current_contract_address(), &config.beneficiary, &payout);
+
+        env.storage().persistent().set(&balance_key, &(balance - payout));
+        env.storage().persistent().set(&settled_key, &true);
+        env.storage().persistent().extend_ttl(
+            &settled_key,
+            storage::PERSISTENT_TTL_THRESHOLD,
+            storage::PERSISTENT_TTL_EXTEND_TO,
+        );
+
+        // caller is intentionally not stored — it's informational only,
+        // captured in the transaction itself, not part of contract state.
+        let _ = &caller;
+
+        SettlementPaid {
+            sla_id,
+            round_id,
+            payout,
+            beneficiary: config.beneficiary,
+        }
+        .publish(&env);
+
+        Ok(())
+    }
+
+    /// Public view.
+    pub fn is_round_settled(env: Env, sla_id: u64, round_id: u64) -> bool {
+        env.storage()
+            .persistent()
+            .get(&DataKey::SettledRounds(sla_id, round_id))
+            .unwrap_or(false)
     }
 }
