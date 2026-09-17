@@ -41,3 +41,87 @@ fn test_initialize_twice_fails() {
     let result = client.try_initialize(&admin, &registry);
     assert_eq!(result, Err(Ok(Error::AlreadyInitialized)));
 }
+
+#[test]
+fn test_create_sla_locks_bond_and_returns_id() {
+    let (env, client, admin, _registry) = setup();
+    let (token_id, asset_client) = setup_token(&env, &admin);
+    let provider = Address::generate(&env);
+    let beneficiary = Address::generate(&env);
+    asset_client.mint(&provider, &10_000i128);
+
+    let sla_id = client.create_sla(
+        &provider,
+        &token_id,
+        &1_000i128,
+        &9990u32,
+        &3u32,
+        &500i128,
+        &beneficiary,
+    );
+
+    assert_eq!(sla_id, 0);
+    assert_eq!(client.get_bond_balance(&sla_id), 1_000i128);
+
+    let token_client = token::Client::new(&env, &token_id);
+    assert_eq!(token_client.balance(&provider), 9_000i128);
+}
+
+#[test]
+fn test_create_sla_zero_bond_fails() {
+    let (env, client, admin, _registry) = setup();
+    let (token_id, _asset_client) = setup_token(&env, &admin);
+    let provider = Address::generate(&env);
+    let beneficiary = Address::generate(&env);
+
+    let result = client.try_create_sla(
+        &provider,
+        &token_id,
+        &0i128,
+        &9990u32,
+        &3u32,
+        &500i128,
+        &beneficiary,
+    );
+    assert_eq!(result, Err(Ok(Error::InvalidAmount)));
+}
+
+#[test]
+fn test_create_sla_penalty_exceeding_bond_fails() {
+    let (env, client, admin, _registry) = setup();
+    let (token_id, asset_client) = setup_token(&env, &admin);
+    let provider = Address::generate(&env);
+    let beneficiary = Address::generate(&env);
+    asset_client.mint(&provider, &10_000i128);
+
+    let result = client.try_create_sla(
+        &provider,
+        &token_id,
+        &1_000i128,
+        &9990u32,
+        &3u32,
+        &1_500i128, // penalty larger than bond — must be rejected
+        &beneficiary,
+    );
+    assert_eq!(result, Err(Ok(Error::InvalidAmount)));
+}
+
+#[test]
+fn test_create_sla_zero_penalty_fails() {
+    let (env, client, admin, _registry) = setup();
+    let (token_id, asset_client) = setup_token(&env, &admin);
+    let provider = Address::generate(&env);
+    let beneficiary = Address::generate(&env);
+    asset_client.mint(&provider, &10_000i128);
+
+    let result = client.try_create_sla(
+        &provider,
+        &token_id,
+        &1_000i128,
+        &9990u32,
+        &3u32,
+        &0i128,
+        &beneficiary,
+    );
+    assert_eq!(result, Err(Ok(Error::InvalidAmount)));
+}
