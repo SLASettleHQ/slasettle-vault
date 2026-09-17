@@ -373,3 +373,49 @@ fn test_withdraw_remaining_bond_after_partial_settlement_returns_what_is_left() 
     assert_eq!(token_client.balance(&beneficiary), 500i128);
     assert_eq!(client.get_bond_balance(&sla_id), 0i128);
 }
+
+#[test]
+fn test_pause_by_non_admin_fails() {
+    let (env, client, _admin, _registry) = setup();
+    let not_admin = Address::generate(&env);
+
+    let result = client.try_pause(&not_admin);
+    assert_eq!(result, Err(Ok(Error::NotAuthorized)));
+}
+
+#[test]
+fn test_paused_contract_rejects_new_sla() {
+    let (env, client, admin, _registry) = setup();
+    client.pause(&admin);
+    let (token_id, asset_client) = setup_token(&env, &admin);
+    let provider = Address::generate(&env);
+    let beneficiary = Address::generate(&env);
+    asset_client.mint(&provider, &10_000i128);
+
+    let result = client.try_create_sla(
+        &provider,
+        &token_id,
+        &1_000i128,
+        &9990u32,
+        &3u32,
+        &500i128,
+        &beneficiary,
+    );
+    assert_eq!(result, Err(Ok(Error::ContractPaused)));
+}
+
+#[test]
+fn test_paused_contract_still_allows_settlement_of_existing_sla() {
+    // Pausing halts new business, it does not freeze obligations already
+    // made — a confirmed breach on an SLA created before the pause must
+    // still settle.
+    let (env, client, admin, registry) = setup();
+    let (sla_id, _provider, beneficiary, token_id) = create_test_sla(&env, &client, &admin);
+    register_and_vote_down(&env, &registry, &admin, sla_id, 1, 3);
+
+    client.pause(&admin);
+    client.trigger_settlement(&admin, &sla_id, &1u64);
+
+    let token_client = token::Client::new(&env, &token_id);
+    assert_eq!(token_client.balance(&beneficiary), 500i128);
+}

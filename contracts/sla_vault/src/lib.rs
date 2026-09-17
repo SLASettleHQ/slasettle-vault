@@ -10,6 +10,31 @@ use events::{BondToppedUp, BondWithdrawn, SettlementPaid, SlaCancelled, SlaCreat
 use soroban_sdk::{contract, contractimpl, token, Address, Env};
 use storage::{DataKey, Error, SLAConfig, SLAStatus};
 
+fn require_admin(env: &Env, caller: &Address) -> Result<(), Error> {
+    caller.require_auth();
+    let admin: Address = env
+        .storage()
+        .instance()
+        .get(&DataKey::Admin)
+        .ok_or(Error::NotAuthorized)?;
+    if &admin != caller {
+        return Err(Error::NotAuthorized);
+    }
+    Ok(())
+}
+
+fn require_not_paused(env: &Env) -> Result<(), Error> {
+    let paused: bool = env
+        .storage()
+        .instance()
+        .get(&DataKey::Paused)
+        .unwrap_or(false);
+    if paused {
+        return Err(Error::ContractPaused);
+    }
+    Ok(())
+}
+
 #[contract]
 pub struct SlaVault;
 
@@ -53,6 +78,7 @@ impl SlaVault {
         beneficiary: Address,
     ) -> Result<u64, Error> {
         provider.require_auth();
+        require_not_paused(&env)?;
 
         if bond_amount <= 0 {
             return Err(Error::InvalidAmount);
@@ -322,6 +348,24 @@ impl SlaVault {
         }
         .publish(&env);
 
+        Ok(())
+    }
+
+    /// Auth: Admin. Stops create_sla from accepting new SLAs. Deliberately
+    /// does not stop top_up_bond or trigger_settlement — an existing
+    /// provider should still be able to top up a bond, and a confirmed
+    /// breach should still settle, even while the contract is paused to new
+    /// business. Pausing halts new commitments, not existing obligations.
+    pub fn pause(env: Env, caller: Address) -> Result<(), Error> {
+        require_admin(&env, &caller)?;
+        env.storage().instance().set(&DataKey::Paused, &true);
+        Ok(())
+    }
+
+    /// Auth: Admin.
+    pub fn unpause(env: Env, caller: Address) -> Result<(), Error> {
+        require_admin(&env, &caller)?;
+        env.storage().instance().set(&DataKey::Paused, &false);
         Ok(())
     }
 }
