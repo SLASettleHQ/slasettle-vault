@@ -112,4 +112,27 @@ impl WatcherRegistry {
             .get(&DataKey::WatcherCount)
             .unwrap_or(0)
     }
+
+    /// Auth: Admin. Stops submit_check from accepting new checks.
+    /// Registration and view functions are unaffected — pausing halts
+    /// incoming data, it does not lock the contract entirely.
+    pub fn pause(env: Env, caller: Address) -> Result<(), Error> {
+        require_admin(&env, &caller)?;
+        env.storage().instance().set(&DataKey::Paused, &true);
+        Ok(())
+    }
+
+    /// Auth: Admin.
+    pub fn unpause(env: Env, caller: Address) -> Result<(), Error> {
+        require_admin(&env, &caller)?;
+        env.storage().instance().set(&DataKey::Paused, &false);
+        Ok(())
+    }
+
+    fn is_paused(env: &Env) -> bool {
+        env.storage()
+            .instance()
+            .get(&DataKey::Paused)
+            .unwrap_or(false)
+    }
 }

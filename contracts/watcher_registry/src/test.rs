@@ -95,3 +95,25 @@ fn test_remove_watcher_not_registered_is_a_no_op() {
     client.remove_watcher(&admin, &watcher);
     assert_eq!(client.get_watcher_count(), 0);
 }
+
+#[test]
+fn test_pause_by_non_admin_fails() {
+    let (env, client, admin) = setup();
+    client.initialize(&admin);
+    let not_admin = Address::generate(&env);
+
+    let result = client.try_pause(&not_admin);
+    assert_eq!(result, Err(Ok(Error::NotAuthorized)));
+}
+
+#[test]
+fn test_pause_then_unpause_by_admin_succeeds() {
+    let (_, client, admin) = setup();
+    client.initialize(&admin);
+
+    client.pause(&admin);
+    client.unpause(&admin);
+    // No panic across either call is the assertion here — submit_check's
+    // own tests cover the actual paused-rejection behavior once that
+    // function exists.
+}
