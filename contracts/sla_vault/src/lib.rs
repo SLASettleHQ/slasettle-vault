@@ -6,6 +6,12 @@ mod storage;
 #[cfg(test)]
 mod test;
 
+mod watcher_registry_contract {
+    soroban_sdk::contractimport!(
+        file = "../../target/wasm32v1-none/release/watcher_registry.wasm"
+    );
+}
+
 use events::{BondToppedUp, BondWithdrawn, SettlementPaid, SlaCancelled, SlaCreated};
 use soroban_sdk::{contract, contractimpl, token, Address, Env};
 use storage::{DataKey, Error, SLAConfig, SLAStatus};
@@ -228,7 +234,7 @@ impl SlaVault {
             .instance()
             .get(&DataKey::WatcherRegistry)
             .ok_or(Error::NotAuthorized)?;
-        let registry_client = watcher_registry::WatcherRegistryClient::new(&env, &registry_address);
+        let registry_client = watcher_registry_contract::Client::new(&env, &registry_address);
         let tally = registry_client.get_round_tally(&sla_id, &round_id);
 
         // 4. Quorum check, sla_vault's judgment call.
