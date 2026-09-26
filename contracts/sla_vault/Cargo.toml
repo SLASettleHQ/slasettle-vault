@@ -10,10 +10,10 @@ doctest = false
 
 [dependencies]
 soroban-sdk = { workspace = true }
-watcher-registry = { path = "../watcher_registry" }
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
+watcher-registry = { path = "../watcher_registry" }
 
 [features]
 testutils = ["soroban-sdk/testutils"]
