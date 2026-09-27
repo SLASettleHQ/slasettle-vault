@@ -26,16 +26,28 @@ rustup target add wasm32v1-none
 stellar contract build
 ```
 
-Requires Rust 1.84+ and `soroban-sdk` 27.x. If a newer stable release of
-either exists by the time you're reading this, verify it and use it, the way
-this repo's own contract spec was written against a freshly checked version
-rather than an assumed one.
+Requires Rust 1.91.0 or newer and `soroban-sdk` 27.x. This is not a guess:
+`soroban-sdk` 27.0.6 declares `rust-version = "1.91.0"`, and this was
+confirmed empirically against the actual dependency graph in this
+repository. Rust 1.84.0 fails outright (`edition2024` is not stabilized
+until 1.85), and Rust 1.85.0 fails with `soroban-sdk@27.0.6 requires rustc
+1.91.0`. Rust 1.91.0 checks and builds successfully. If a newer stable
+release of Rust or `soroban-sdk` exists by the time you're reading this,
+verify it against the real dependency graph rather than assuming either
+number above still holds.
 
-**This code has not been compiled in the environment it was written in.**
-That environment's toolchain was capped at Rust 1.75 with no reachable path
-to upgrade it, and `soroban-sdk` 27's dependency tree requires Cargo's
-`edition2024` feature (Rust 1.85+). Run `cargo check` and `cargo test` in a
-real environment before trusting or deploying any of this.
+`Cargo.lock` is currently gitignored, not committed. That means the exact
+transitive dependency versions this repository resolves to are not pinned,
+so two people running `cargo build` at different times could legitimately
+resolve different transitive versions. This is a real reproducibility gap,
+not yet closed here.
+
+This code has been compiled and tested in a real environment: `cargo test
+--workspace` passes (see below), and `stellar contract build` succeeds for
+both contracts with zero linker errors, producing deployable WASM for both.
+`cargo fmt --check` currently fails; existing formatting drift has not been
+cleaned up as part of this pass, since doing so would touch unrelated lines
+across both contracts.
 
 ## Testing
 
@@ -75,6 +87,27 @@ echo "watcher_registry: $REGISTRY_ID"
 echo "sla_vault: $VAULT_ID"
 ```
 
+### Currently deployed on Testnet
+
+```
+watcher_registry: CBEZ3XBIWK2AWYGZRNDGNZG3AZTJHFMQL5HVWTEUZZ5HLSCO4QDFJB77
+sla_vault:        CBA4DFNUBVCPLEAUD5O2CHSUB6DRWUNM7A537EBVPAGDETFBB2CABXI2
+```
+
+Both are initialized, with 5 watchers registered. A real SLA (`sla_id: 0`,
+5 XLM bond, 1 XLM penalty per breach, quorum threshold 3) has been created,
+settled through a real quorum of 3 watcher votes, and paid out. Verified
+transactions:
+
+- `create_sla`: `258c86d2a0de481d60240dd29cea6de490840bd29f78e550fb97fb4fb8028b7c`
+- `trigger_settlement` (payout): `b1dc301a22f8381ee9705a72e214d212e1f1c81c9b0ac53729506708b286d85e`
+
+After settlement, `get_bond_balance` for `sla_id: 0` read back exactly
+`40000000` (50000000 minus the 10000000 payout), `is_round_settled` read
+`true`, and the beneficiary's real token balance increased by exactly
+`10000000`. These are the actual read values, not inferred from the
+transaction submissions succeeding.
+
 ## Known limitations, stated plainly
 
 1. **No defense against last-mover vote copying.** Contract state is public,
@@ -86,4 +119,5 @@ echo "sla_vault: $VAULT_ID"
 3. **One shared watcher set** across every SLA on the deployment. A provider
    cannot curate their own trusted watchers in this version.
 
-Full reasoning for each is in `SLASettle-contract-spec.md`.
+Full interface reference, authorization rules, and reasoning for each
+limitation above is in `SLASettle-contract-spec.md`.
