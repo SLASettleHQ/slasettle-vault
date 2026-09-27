@@ -87,6 +87,30 @@ fn test_create_sla_zero_bond_fails() {
 }
 
 #[test]
+fn test_create_sla_zero_quorum_threshold_fails() {
+    // A quorum_threshold of 0 would make trigger_settlement's
+    // `votes_down < quorum_threshold` check always false (votes_down is a
+    // u32, never negative), letting settlement pass with zero votes. This
+    // must be rejected at creation, not discovered at settlement time.
+    let (env, client, admin, _registry) = setup();
+    let (token_id, asset_client) = setup_token(&env, &admin);
+    let provider = Address::generate(&env);
+    let beneficiary = Address::generate(&env);
+    asset_client.mint(&provider, &10_000i128);
+
+    let result = client.try_create_sla(
+        &provider,
+        &token_id,
+        &1_000i128,
+        &9990u32,
+        &0u32, // zero quorum, must be rejected
+        &500i128,
+        &beneficiary,
+    );
+    assert_eq!(result, Err(Ok(Error::InvalidAmount)));
+}
+
+#[test]
 fn test_create_sla_penalty_exceeding_bond_fails() {
     let (env, client, admin, _registry) = setup();
     let (token_id, asset_client) = setup_token(&env, &admin);

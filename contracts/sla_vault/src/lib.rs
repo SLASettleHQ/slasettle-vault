@@ -92,6 +92,14 @@ impl SlaVault {
         if penalty_per_breach <= 0 || penalty_per_breach > bond_amount {
             return Err(Error::InvalidAmount);
         }
+        // trigger_settlement checks `tally.votes_down < quorum_threshold`.
+        // votes_down is a u32 and can never be less than 0, so a
+        // quorum_threshold of 0 would make that comparison always false,
+        // and settlement would pass with zero votes, defeating quorum
+        // entirely.
+        if quorum_threshold == 0 {
+            return Err(Error::InvalidAmount);
+        }
 
         // Standard SAC pattern: the provider's transaction already carries
         // the auth entry for this transfer (from require_auth above plus
