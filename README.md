@@ -36,18 +36,31 @@ release of Rust or `soroban-sdk` exists by the time you're reading this,
 verify it against the real dependency graph rather than assuming either
 number above still holds.
 
-`Cargo.lock` is currently gitignored, not committed. That means the exact
-transitive dependency versions this repository resolves to are not pinned,
-so two people running `cargo build` at different times could legitimately
-resolve different transitive versions. This is a real reproducibility gap,
-not yet closed here.
+`Cargo.lock` is committed. Current official Cargo guidance is "when in
+doubt, check Cargo.lock into version control," and this workspace produces
+deployable WASM binaries, not a library meant for other Rust crates to
+depend on, which is the strongest case for committing it. This was not a
+theoretical concern: regenerating the lockfile in this repository changed
+`watcher_registry.wasm`'s build hash even though its source did not change
+at all, purely from a different transitive dependency resolution. Without a
+committed lockfile, the exact same source can produce a different
+deployable artifact depending on when it's built.
 
 This code has been compiled and tested in a real environment: `cargo test
---workspace` passes (see below), and `stellar contract build` succeeds for
-both contracts with zero linker errors, producing deployable WASM for both.
-`cargo fmt --check` currently fails; existing formatting drift has not been
-cleaned up as part of this pass, since doing so would touch unrelated lines
-across both contracts.
+--workspace` passes (see below), `cargo check --workspace` passes, and
+`stellar contract build` succeeds for both contracts with zero linker
+errors, producing deployable WASM for both, all with the committed
+lockfile in place. `cargo fmt --check` currently fails and `cargo clippy
+--workspace --all-targets --all-features` has 2 pre-existing style
+warnings (`needless_borrows_for_generic_args` in `sla_vault`); neither has
+been cleaned up as part of this pass, since doing so would touch lines
+unrelated to it.
+
+A newer `soroban-sdk` major version (28.0.0) exists on crates.io as of this
+writing. This repository intentionally stays on the `27.x` line declared in
+`Cargo.toml`, since the deployed Testnet contracts described below were
+built against `27.0.6` and a major SDK upgrade has not been verified
+against that deployment.
 
 ## Testing
 
