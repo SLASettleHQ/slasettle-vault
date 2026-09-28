@@ -105,15 +105,37 @@ These are documented in `README.md` and remain true as of this review:
   unsigned integer, a zero threshold made that comparison always false,
   letting settlement pass with zero watcher votes and defeating the quorum
   mechanism entirely for that SLA. `create_sla` now rejects
-  `quorum_threshold == 0` with `Error::InvalidAmount`. See the commit fixing
-  this for the regression test added alongside it.
+  `quorum_threshold == 0` with `Error::InvalidAmount`. Verified against a
+  real deployed contract on Testnet, not just the local regression test:
+  see `evidence/testnet-2026-09-27.md`.
+- `withdraw_remaining_bond` previously succeeded as a silent no-op when
+  the bond balance was already zero: no funds moved (the transfer was
+  already guarded by `balance > 0`), but the call was still accepted and
+  still emitted a `BondWithdrawn` event with `amount: 0`, wasting a real
+  transaction fee and emitting a misleading event. Now rejects with
+  `Error::InvalidAmount` when the balance is already zero, consistent with
+  `create_sla`'s and `top_up_bond`'s existing zero-value checks. This was
+  not a fund-safety issue at any point; see
+  `evidence/recovery-2026-09-28.md` for the full investigation.
 
-## Dependency scanning
+## Dependency and secret scanning
 
-No automated dependency vulnerability scanner (e.g. `cargo audit`,
-Dependabot security updates) is currently configured for this repository.
-This is a real gap, tracked as backlog work, not something this review
-resolves.
+`cargo audit` was run against this workspace on 2026-09-28
+(cargo-audit 0.22.2). Result: one non-CVE warning, `paste` v1.0.15 is
+unmaintained (RUSTSEC-2024-0436). Traced with `cargo tree -i paste`: it is
+pulled in transitively through `soroban-env-host` (part of `soroban-sdk`
+itself), not a dependency this repository chose or can remove directly.
+No automated, ongoing scanner (a scheduled CI job, Dependabot security
+updates) is configured; the scan above was a real, manually-run, one-time
+check, not continuous coverage.
+
+A manual secret scan (`git grep` for Stellar secret key patterns, PEM
+private-key blocks, and generic API-key patterns) was run across every
+commit in this repository's complete reachable history on 2026-09-28.
+Nothing was found. No dedicated entropy-based secret-scanning tool has
+been run successfully against this repository as of this date. See
+`evidence/security-review-2026-09-28.md` for the full review this section
+summarizes.
 
 ## Supported versions
 
