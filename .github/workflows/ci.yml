@@ -20,6 +20,19 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      - name: install stellar CLI 27.0.0
+        run: |
+          curl -sL https://github.com/stellar/stellar-cli/releases/download/v27.0.0/stellar-cli-27.0.0-x86_64-unknown-linux-gnu.tar.gz \
+            | tar xz -C /usr/local/bin
+
+      # Must run before cargo check/test/clippy: sla_vault's lib.rs uses
+      # soroban_sdk::contractimport! to read watcher_registry's compiled
+      # WASM interface at compile time, so that file has to exist on disk
+      # first. stellar contract build produces it (watcher_registry builds
+      # before sla_vault per the workspace Cargo.toml's member order).
+      - name: stellar contract build
+        run: stellar contract build
+
       # This repository has known, pre-existing formatting drift that
       # predates this workflow (see README.md and
       # evidence/security-review-2026-09-28.md). Fixing it would require a
@@ -38,11 +51,3 @@ jobs:
 
       - name: cargo clippy
         run: cargo clippy --workspace --all-targets --all-features
-
-      - name: install stellar CLI 27.0.0
-        run: |
-          curl -sL https://github.com/stellar/stellar-cli/releases/download/v27.0.0/stellar-cli-27.0.0-x86_64-unknown-linux-gnu.tar.gz \
-            | tar xz -C /usr/local/bin
-
-      - name: stellar contract build
-        run: stellar contract build
