@@ -354,6 +354,20 @@ fn test_withdraw_remaining_bond_after_cancel_succeeds() {
 }
 
 #[test]
+fn test_withdraw_remaining_bond_twice_fails_second_time() {
+    // A repeat withdraw on an already-zero balance must be rejected, not
+    // silently succeed as a no-op. Confirmed as a real gap via live
+    // Testnet evidence before this test was added.
+    let (env, client, admin, _registry) = setup();
+    let (sla_id, provider, _beneficiary, _token) = create_test_sla(&env, &client, &admin);
+    client.cancel_sla(&provider, &sla_id);
+    client.withdraw_remaining_bond(&provider, &sla_id);
+
+    let result = client.try_withdraw_remaining_bond(&provider, &sla_id);
+    assert_eq!(result, Err(Ok(Error::InvalidAmount)));
+}
+
+#[test]
 fn test_withdraw_remaining_bond_without_cancel_fails() {
     let (env, client, admin, _registry) = setup();
     let (sla_id, provider, _beneficiary, _token) = create_test_sla(&env, &client, &admin);

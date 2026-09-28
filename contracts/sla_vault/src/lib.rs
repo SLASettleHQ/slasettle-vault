@@ -350,11 +350,21 @@ impl SlaVault {
         let balance_key = DataKey::BondBalance(sla_id);
         let balance: i128 = env.storage().persistent().get(&balance_key).unwrap_or(0);
 
-        if balance > 0 {
-            let token_client = token::Client::new(&env, &config.token);
-            token_client.transfer(&env.current_contract_address(), &caller, &balance);
-            env.storage().persistent().set(&balance_key, &0i128);
+        // A zero balance here (either nothing was ever left, or a previous
+        // withdraw already emptied it) is rejected outright rather than
+        // silently succeeding as a no-op. Live Testnet evidence showed a
+        // repeat call on an exhausted balance would otherwise still submit
+        // a real transaction and emit a BondWithdrawn event with amount: 0,
+        // which moves no funds but is misleading and wastes a fee. This
+        // matches the same zero-value rejection already used by
+        // create_sla and top_up_bond.
+        if balance <= 0 {
+            return Err(Error::InvalidAmount);
         }
+
+        let token_client = token::Client::new(&env, &config.token);
+        token_client.transfer(&env.current_contract_address(), &caller, &balance);
+        env.storage().persistent().set(&balance_key, &0i128);
 
         BondWithdrawn {
             sla_id,
