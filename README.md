@@ -103,23 +103,28 @@ echo "sla_vault: $VAULT_ID"
 ### Currently deployed on Testnet
 
 ```
-watcher_registry: CBEZ3XBIWK2AWYGZRNDGNZG3AZTJHFMQL5HVWTEUZZ5HLSCO4QDFJB77
-sla_vault:        CBA4DFNUBVCPLEAUD5O2CHSUB6DRWUNM7A537EBVPAGDETFBB2CABXI2
+watcher_registry: CBKAQETJU3PLB54LJRSA7ZH2ZG4TBQHHDSWZ23R4VVTV7WBIX3QZBUZ6
+sla_vault:        CD4FSW2E2YLGNVPQ6T6DA6FKRK735HLMN676IEF2O5LKZYVDYHHDIIFL
 ```
 
-Both are initialized, with 5 watchers registered. A real SLA (`sla_id: 0`,
-5 XLM bond, 1 XLM penalty per breach, quorum threshold 3) has been created,
-settled through a real quorum of 3 watcher votes, and paid out. Verified
-transactions:
+This is a fresh deployment of the current source, built from WASM hash
+`6909713244bf5837954b8d584343e2136bd7570a10da8db7b30533e613b67830` for
+`sla_vault`, which includes the `quorum_threshold == 0` fix. Both contracts
+are initialized, with 5 watchers registered. Full live evidence, including
+the quorum-zero rejection confirmed against this exact deployment, real
+watcher votes, a real settlement, cancellation, withdrawal, and pause
+behavior, is in `evidence/testnet-2026-09-27.md`.
+
+The previously deployed pair below predates the quorum fix and is kept as
+historical evidence only, not as verification of the current source:
+
+```
+watcher_registry (historical): CBEZ3XBIWK2AWYGZRNDGNZG3AZTJHFMQL5HVWTEUZZ5HLSCO4QDFJB77
+sla_vault (historical):        CBA4DFNUBVCPLEAUD5O2CHSUB6DRWUNM7A537EBVPAGDETFBB2CABXI2
+```
 
 - `create_sla`: `258c86d2a0de481d60240dd29cea6de490840bd29f78e550fb97fb4fb8028b7c`
 - `trigger_settlement` (payout): `b1dc301a22f8381ee9705a72e214d212e1f1c81c9b0ac53729506708b286d85e`
-
-After settlement, `get_bond_balance` for `sla_id: 0` read back exactly
-`40000000` (50000000 minus the 10000000 payout), `is_round_settled` read
-`true`, and the beneficiary's real token balance increased by exactly
-`10000000`. These are the actual read values, not inferred from the
-transaction submissions succeeding.
 
 ## Known limitations, stated plainly
 
