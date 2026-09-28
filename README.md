@@ -26,15 +26,18 @@ rustup target add wasm32v1-none
 stellar contract build
 ```
 
-Requires Rust 1.91.0 or newer and `soroban-sdk` 27.x. This is not a guess:
-`soroban-sdk` 27.0.6 declares `rust-version = "1.91.0"`, and this was
-confirmed empirically against the actual dependency graph in this
-repository. Rust 1.84.0 fails outright (`edition2024` is not stabilized
-until 1.85), and Rust 1.85.0 fails with `soroban-sdk@27.0.6 requires rustc
-1.91.0`. Rust 1.91.0 checks and builds successfully. If a newer stable
-release of Rust or `soroban-sdk` exists by the time you're reading this,
-verify it against the real dependency graph rather than assuming either
-number above still holds.
+Requires a current stable Rust and `soroban-sdk` 28.x. `soroban-sdk` was
+bumped from 27.0.6 to 28.0.0 by a merged Dependabot PR
+(SLASettleHQ/slasettle-vault#1); CI (which runs on `dtolnay/rust-toolchain@stable`)
+passed on that PR and on `main` afterward, so a current stable Rust is
+confirmed sufficient. The exact minimum `rust-version` for 28.0.0 has not
+been reconfirmed as precisely as it was for 27.0.6 (which declared
+`rust-version = "1.91.0"`, verified by testing 1.84.0/1.85.0/1.91.0
+directly against this dependency graph); 1.91.0 was not reverified against
+28.0.0 specifically. If you hit a toolchain error building this
+repository, check `soroban-sdk`'s current declared `rust-version` against
+your installed Rust rather than assuming either number in this paragraph
+still applies.
 
 `Cargo.lock` is committed. Current official Cargo guidance is "when in
 doubt, check Cargo.lock into version control," and this workspace produces
@@ -56,11 +59,20 @@ warnings (`needless_borrows_for_generic_args` in `sla_vault`); neither has
 been cleaned up as part of this pass, since doing so would touch lines
 unrelated to it.
 
-A newer `soroban-sdk` major version (28.0.0) exists on crates.io as of this
-writing. This repository intentionally stays on the `27.x` line declared in
-`Cargo.toml`, since the deployed Testnet contracts described below were
-built against `27.0.6` and a major SDK upgrade has not been verified
-against that deployment.
+**`soroban-sdk` is currently 28.0.0** (merged via Dependabot PR #1;
+`cargo test --workspace` still passes 46/46, `stellar contract build`
+still succeeds with zero linker errors, both confirmed in CI and locally).
+This is a real, important gap to be aware of: the Testnet contracts
+described below under "Currently deployed" were built and deployed with
+`soroban-sdk` 27.0.6, **before** this upgrade. Rebuilding from the current
+`main` produces a different `sla_vault.wasm` (hash
+`2f958b86a2ca24fdbfc7f12536d2b8ce2160b5dcedb81b5c84c83fb80da5d42d`,
+confirmed via CI) than what is actually live on Testnet (hash
+`6909713244bf5837954b8d584343e2136bd7570a10da8db7b30533e613b67830`). The
+currently deployed contracts have not been redeployed against the
+28.0.0 build, and the live Testnet evidence recorded in this repository
+was gathered against the 27.0.6 build. Do not assume the two are
+equivalent without redeploying and re-verifying.
 
 ## Testing
 
@@ -107,16 +119,22 @@ watcher_registry: CBKAQETJU3PLB54LJRSA7ZH2ZG4TBQHHDSWZ23R4VVTV7WBIX3QZBUZ6
 sla_vault:        CD4FSW2E2YLGNVPQ6T6DA6FKRK735HLMN676IEF2O5LKZYVDYHHDIIFL
 ```
 
-This is a fresh deployment of the current source, built from WASM hash
+This was a fresh deployment as of 2026-09-27, built from WASM hash
 `6909713244bf5837954b8d584343e2136bd7570a10da8db7b30533e613b67830` for
-`sla_vault`, which includes the `quorum_threshold == 0` fix. Both contracts
-are initialized, with 5 watchers registered. Full live evidence, including
-the quorum-zero rejection confirmed against this exact deployment, real
-watcher votes, a real settlement, cancellation, withdrawal, and pause
-behavior, is in `evidence/testnet-2026-09-27.md`.
+`sla_vault` (`soroban-sdk` 27.0.6), which includes the `quorum_threshold
+== 0` fix. **It no longer matches the current `main`**, which has since
+moved to `soroban-sdk` 28.0.0 and builds a different `sla_vault.wasm` hash
+(see "Building" above). Both contracts are initialized, with 5 watchers
+registered. Full live evidence, including the quorum-zero rejection
+confirmed against this exact deployment, real watcher votes, a real
+settlement, cancellation, withdrawal, and pause behavior, is in
+`evidence/testnet-2026-09-27.md`; that evidence is valid for the 27.0.6
+build it was gathered against, not automatically for the current 28.0.0
+source.
 
-The previously deployed pair below predates the quorum fix and is kept as
-historical evidence only, not as verification of the current source:
+The previously deployed pair below predates the quorum fix (and also
+predates the SDK bump) and is kept as historical evidence only, not as
+verification of the current source:
 
 ```
 watcher_registry (historical): CBEZ3XBIWK2AWYGZRNDGNZG3AZTJHFMQL5HVWTEUZZ5HLSCO4QDFJB77
@@ -125,6 +143,24 @@ sla_vault (historical):        CBA4DFNUBVCPLEAUD5O2CHSUB6DRWUNM7A537EBVPAGDETFBB
 
 - `create_sla`: `258c86d2a0de481d60240dd29cea6de490840bd29f78e550fb97fb4fb8028b7c`
 - `trigger_settlement` (payout): `b1dc301a22f8381ee9705a72e214d212e1f1c81c9b0ac53729506708b286d85e`
+
+## Continuous integration and dependency maintenance
+
+`.github/workflows/ci.yml` runs on every push to `main` and every pull
+request against it: `cargo check`, `cargo test`, `cargo clippy`, and
+`stellar contract build`, plus an informational (non-blocking) `cargo fmt
+--check`. `main` is currently green.
+
+Dependabot is configured (`.github/dependabot.yml`) for the `cargo` and
+`github-actions` ecosystems, weekly. It has already opened and this
+project has already merged real dependency PRs, including the
+`soroban-sdk` 27.0.6 to 28.0.0 bump described above.
+
+`main` is branch-protected: pull requests are required, the CI job above
+(`check, test, build`) is a required status check, force pushes and branch
+deletion are disabled. Required approving reviews are set to 0, since this
+is currently a solo-maintained repository; that is a deliberate choice for
+the current maintainer count, not an oversight.
 
 ## Known limitations, stated plainly
 
