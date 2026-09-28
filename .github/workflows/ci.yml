@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  check-test-build:
+    name: check, test, build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32v1-none
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+
+      # This repository has known, pre-existing formatting drift that
+      # predates this workflow (see README.md and
+      # evidence/security-review-2026-09-28.md). Fixing it would require a
+      # broad, unrelated reformatting pass, so this step is informational,
+      # not a required gate, until that drift is deliberately cleaned up
+      # in its own change.
+      - name: cargo fmt --check (informational, known drift)
+        run: cargo fmt --check
+        continue-on-error: true
+
+      - name: cargo check
+        run: cargo check --workspace
+
+      - name: cargo test
+        run: cargo test --workspace
+
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets --all-features
+
+      - name: install stellar CLI 27.0.0
+        run: |
+          curl -sL https://github.com/stellar/stellar-cli/releases/download/v27.0.0/stellar-cli-27.0.0-x86_64-unknown-linux-gnu.tar.gz \
+            | tar xz -C /usr/local/bin
+
+      - name: stellar contract build
+        run: stellar contract build
