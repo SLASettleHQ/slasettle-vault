@@ -50,7 +50,7 @@ Two contracts:
 | `is_watcher(watcher)` | none | Read. |
 | `get_watcher_count()` | none | Read. |
 | `pause(caller)` / `unpause(caller)` | `caller` must be admin | Blocks `submit_check` while paused; does not block reads. |
-| `submit_check(watcher, sla_id, round_id, endpoint_hash, status)` | `watcher` | `watcher` must already be registered. Exactly one vote per `(sla_id, round_id, watcher)`; a duplicate is rejected with `DuplicateCheck`, never overwritten. `endpoint_hash` is stored on the check record but not validated against anything by this contract; it exists so a later dispute can be cross-referenced against `sla_vault`'s stored token/config by a human or another system, not enforced here. |
+| `submit_check(watcher, sla_id, round_id, endpoint_hash, status)` | `watcher` | `watcher` must already be registered. Exactly one vote per `(sla_id, round_id, watcher)`; a duplicate is rejected with `DuplicateCheck`, never overwritten. `endpoint_hash` is accepted but **not stored and not emitted**: the check record holds only the `CheckStatus`, and `CheckSubmitted` carries no hash (`watcher_registry/src/lib.rs` discards it with `let _ = &endpoint_hash`). It is visible only as an argument of the submitting transaction, where a human or another system could read it from transaction history; this contract neither validates nor keeps it. (The doc comment above `submit_check` still says "stored on the check record"; that comment is stale.) |
 | `get_round_tally(sla_id, round_id)` | none | Read. |
 | `has_watcher_voted(sla_id, round_id, watcher)` | none | Read. |
 

@@ -1,9 +1,12 @@
 # slasettle-vault
 
 Two Soroban contracts: `watcher_registry` and `sla_vault`. Together they let
-a Stellar-based service back its uptime promise with a real bond, verified by
-independent watchers, and paid out automatically when enough of them agree
-the service was down.
+a Stellar-based service back its uptime promise with a real bond, checked by
+watchers (independent of the provider by design), and paid out when enough of
+them have voted the service down and someone calls `trigger_settlement`. Nothing
+in either repository calls it automatically; on the current Testnet deployment
+the watcher addresses were registered by the project admin for evidence runs,
+not by independent operators.
 
 Testnet only, for now. Nothing here has been audited, and there is a known,
 unresolved trust gap in `watcher_registry` — see below.
