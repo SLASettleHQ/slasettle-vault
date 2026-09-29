@@ -32,7 +32,10 @@ Two contracts:
 - `DataKey::Paused` (instance): pause flag.
 - Persistent entries are TTL-extended to roughly 30 days
   (`PERSISTENT_TTL_EXTEND_TO = 518_400` ledgers) whenever written, re-extended
-  once within about a day of expiry.
+  once within about a day of expiry. Instance storage is never extended by the
+  contract code, and a read (for example `submit_check` checking `Watcher`) does
+  not refresh what it reads. The live instances were extended externally on
+  2026-09-29; see `slasettle-hub/apps/docs/testnet-deployment.md`.
 
 ### Types
 
@@ -132,7 +135,7 @@ uptime enforcement is out of scope for this version.
 | `top_up_bond(caller, sla_id, amount)` | `caller` must equal the SLA's `provider` | Adds `amount` of the SLA's token to the tracked balance; transfers it in from `caller`. |
 | `trigger_settlement(caller, sla_id, round_id)` | **none on `caller`** | Deliberately permissionless: `caller` is accepted but never passed to `require_auth`, and is not checked against any role. Anyone believing quorum has formed may call it; nobody's funds move because of who calls it, only because quorum was independently reached. `caller` is not stored and is not part of the `SettlementPaid` event; it is visible only as an argument of the transaction itself. Reads the round tally from the configured `watcher_registry` contract (via `contractimport!`, not the source crate) and requires `tally.votes_down >= quorum_threshold`, else `QuorumNotMet`. Idempotent per `(sla_id, round_id)`: a second call returns `AlreadySettled` with no transfer. Payout is `min(penalty_per_breach, remaining bond balance)`; if that would be `<= 0`, fails with `BondExhausted` before any transfer. |
 | `is_round_settled(sla_id, round_id)` | none | Read. |
-| `cancel_sla(caller, sla_id)` | `caller` must equal the SLA's `provider` | Marks the SLA `Cancelled`. Does not touch the bond balance. |
+| `cancel_sla(caller, sla_id)` | `caller` must equal the SLA's `provider` | Marks the SLA `Cancelled`. Does not touch the bond balance. There is no status check, so cancelling an already cancelled SLA succeeds and emits another `SlaCancelled` event; no funds move. |
 | `withdraw_remaining_bond(caller, sla_id)` | `caller` must equal the SLA's `provider` | Requires the SLA already be `Cancelled` (`SlaNotActive` otherwise); transfers the full remaining balance to `caller` and zeroes it. A balance that is already `0` is rejected with `InvalidAmount` before any transfer, so a repeat call cannot emit a `BondWithdrawn` event with `amount: 0`. This zero-balance rejection was added in commit `99be8a1` (2026-09-28), after the Testnet deployment described in `evidence/testnet-2026-09-27.md` was built; that deployment does not contain it. |
 | `pause(caller)` / `unpause(caller)` | `caller` must be admin | Gates `create_sla` only. Existing SLAs can still be settled, cancelled, topped up, or withdrawn while paused; this is deliberate, not an oversight, so a pause cannot be used to strand a provider's or beneficiary's funds. |
 
@@ -185,6 +188,12 @@ different meanings: `#3` is `NotAWatcher` in `watcher_registry` but
 `AlreadySettled`; `#5` is `ContractPaused` versus `QuorumNotMet`. A failed
 call surfaces on the wire as `Error(Contract, #N)`, so `N` is only meaningful
 together with the contract that raised it.
+
+### Quorum and watcher-set behavior
+
+`create_sla` does not compare `quorum_threshold` with the number of registered
+watchers, so a threshold above that number can never be reached. Removing a
+watcher does not remove its earlier votes from any round's tally.
 
 ### Round IDs
 

@@ -63,7 +63,7 @@ been cleaned up as part of this pass, since doing so would touch lines
 unrelated to it.
 
 **`soroban-sdk` is currently 28.0.0** (merged via Dependabot PR #1;
-`cargo test --workspace` still passes 46/46, `stellar contract build`
+`cargo test --workspace` still passes 47/47, `stellar contract build`
 still succeeds with zero linker errors, both confirmed in CI and locally).
 This is a real, important gap to be aware of: the Testnet contracts
 described below under "Currently deployed" were built and deployed with
@@ -134,7 +134,11 @@ moved to `soroban-sdk` 28.0.0 and builds a different `sla_vault.wasm` hash
 contract a repeat withdrawal from an already-empty bond still succeeds as a
 no-op and emits a `BondWithdrawn` event with `amount: 0`, which is exactly the
 behavior recorded in `evidence/testnet-2026-09-27.md`. Both contracts are
-initialized, with 5 watchers registered. On 2026-09-29 the on-chain WASM of
+initialized, with 5 watchers registered. The current source never extends
+instance storage, so the live instances and WASM code entries were extended
+by hand on 2026-09-29 (no redeployment; hashes unchanged; live until about
+ledger 7932489 to 7932497). That is an operational mitigation, not a source
+fix; see `slasettle-hub/apps/docs/testnet-deployment.md`. On 2026-09-29 the on-chain WASM of
 both contracts was re-fetched and its SHA-256 matched the hashes above, and a
 build of the current source exposes an identical public interface apart from
 one omitted storage-key type (see `slasettle-hub`'s
