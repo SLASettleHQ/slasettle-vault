@@ -153,11 +153,12 @@ impl WatcherRegistry {
     /// ships without it — see SLASettle-contract-spec.md for the full
     /// reasoning. Revisit before this handles anything beyond a demo bond.
     ///
-    /// `endpoint_hash` is stored on the check record but not validated
-    /// against anything here — it exists so a later dispute can verify
-    /// which endpoint a watcher actually checked, cross-referenced against
-    /// sla_vault's stored config. That cross-check is not this contract's
-    /// job.
+    /// `endpoint_hash` is accepted as an argument but this contract does not
+    /// persist or validate it: the check record holds only `status`, and
+    /// `CheckSubmitted` does not carry the hash. It is therefore observable
+    /// from the submitting transaction's invocation, not from contract
+    /// storage or events. Any cross-check against what a watcher actually
+    /// checked would have to read it from transaction history.
     pub fn submit_check(
         env: Env,
         watcher: Address,
@@ -185,8 +186,8 @@ impl WatcherRegistry {
             return Err(Error::DuplicateCheck);
         }
 
-        // endpoint_hash is part of the record but intentionally unused in
-        // this version's logic beyond storage — see doc comment above.
+        // endpoint_hash is intentionally unused: it is not stored and not
+        // emitted — see the doc comment above.
         let _ = &endpoint_hash;
         env.storage().persistent().set(&check_key, &status);
         env.storage().persistent().extend_ttl(

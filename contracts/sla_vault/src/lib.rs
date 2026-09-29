@@ -210,9 +210,10 @@ impl SlaVault {
     }
 
     /// No `require_auth` on `caller` at all — this is the permissionless
-    /// keeper function, deliberately. `caller` is recorded only in the
-    /// event, not authorized, because they aren't moving any of their own
-    /// funds. Anyone can call this the moment they believe quorum has
+    /// keeper function, deliberately. `caller` is accepted as an argument
+    /// but is not authorized, not stored in contract state, and not included
+    /// in `SettlementPaid`; it remains observable from the transaction
+    /// itself. They aren't moving any of their own funds. Anyone can call this the moment they believe quorum has
     /// formed; the idempotency check below (step 2) is what makes that
     /// safe.
     ///
