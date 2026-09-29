@@ -1,7 +1,10 @@
 #![cfg(test)]
 
 use crate::{events::SettlementPaid, storage::Error, SlaVault, SlaVaultClient};
-use soroban_sdk::{testutils::{Address as _, Events as _}, token, Address, BytesN, Env, Event as _};
+use soroban_sdk::{
+    testutils::{Address as _, Events as _},
+    token, Address, BytesN, Env, Event as _,
+};
 
 /// Deploys a Stellar Asset Contract instance for use as the bond token in
 /// tests, via the SDK's own test helper for the built-in asset contract —
