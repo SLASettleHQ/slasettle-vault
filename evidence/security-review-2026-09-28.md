@@ -1,3 +1,13 @@
+> **Correction added 2026-09-29; the original 2026-09-28 text below is unchanged.**
+> Under "Token transfer behavior and bond accounting" this review says payout
+> capping was "VERIFIED LIVE and TESTED LOCALLY". The live part is not
+> supported: the one live settlement (tx `6522d8b7…`) paid the full penalty
+> from a bond of `55000000`, so the branch where the remaining bond is below
+> the penalty never ran on Testnet. Current classification: implementation,
+> source; behavior, TESTED LOCALLY
+> (`test_trigger_settlement_caps_payout_at_remaining_balance`); live execution,
+> UNVERIFIED. See `slasettle-hub/evidence/index.md` rows E5 and E7.
+
 # Security review, 2026-09-28
 
 ## Scope and method
