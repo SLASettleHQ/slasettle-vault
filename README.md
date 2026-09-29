@@ -63,7 +63,7 @@ been cleaned up as part of this pass, since doing so would touch lines
 unrelated to it.
 
 **`soroban-sdk` is currently 28.0.0** (merged via Dependabot PR #1;
-`cargo test --workspace` still passes 47/47, `stellar contract build`
+`cargo test --workspace` still passes 52/52, `stellar contract build`
 still succeeds with zero linker errors, both confirmed in CI and locally).
 This is a real, important gap to be aware of: the Testnet contracts
 described below under "Currently deployed" were built and deployed with
