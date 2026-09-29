@@ -59,8 +59,9 @@ to the current `main` branch.
   as a parameter but is never passed to `require_auth()`, and is not checked
   against any role. This is intentional: nobody's funds move because of the
   call itself, only because quorum was independently reached, so anyone
-  believing quorum has formed may trigger the payout. `caller` is recorded
-  only for observability and is not otherwise used.
+  believing quorum has formed may trigger the payout. `caller` is not
+  stored and does not appear in the `SettlementPaid` event; it is visible
+  only as an argument of the transaction itself.
 - `pause`, `unpause`: caller must be the stored admin.
 - `get_sla`, `get_bond_balance`, `is_round_settled`: unauthenticated reads.
 

@@ -62,6 +62,15 @@ Two contracts:
 | `WatcherRemoved` | `watcher: Address` | (none) |
 | `CheckSubmitted` | `sla_id: u64`, `watcher: Address` | `round_id: u64`, `status: CheckStatus` |
 
+On the wire, topic 0 of every event is the event's name as a snake_case
+symbol (`watcher_registered`, `watcher_removed`, `check_submitted`), and the
+`Topics` column above lists only the topics that follow it. Data fields are
+carried as a map keyed by field name; an event with no data fields carries an
+empty map. `CheckStatus` is encoded as a one-element vec holding the variant's
+symbol (`["Up"]`, `["Down"]`). All three event kinds have been observed on
+real Testnet transactions and decoded; see
+`evidence/testnet-2026-09-27.md` (all 8 event kinds table).
+
 ### Known limitation: no commit-reveal
 
 Because contract state is public, a watcher who submits late can see how
@@ -121,10 +130,10 @@ uptime enforcement is out of scope for this version.
 | `create_sla(provider, token, bond_amount, uptime_target_bps, quorum_threshold, penalty_per_breach, beneficiary)` | `provider` | Rejects `bond_amount <= 0`, `penalty_per_breach <= 0`, `penalty_per_breach > bond_amount`, and `quorum_threshold == 0` (see below), all as `InvalidAmount`. Transfers `bond_amount` of `token` from `provider` into the vault in the same call. Returns the new `sla_id`. Blocked while paused. |
 | `get_sla(sla_id)` / `get_bond_balance(sla_id)` | none | Reads. |
 | `top_up_bond(caller, sla_id, amount)` | `caller` must equal the SLA's `provider` | Adds `amount` of the SLA's token to the tracked balance; transfers it in from `caller`. |
-| `trigger_settlement(caller, sla_id, round_id)` | **none on `caller`** | Deliberately permissionless: `caller` is accepted but never passed to `require_auth`, and is not checked against any role. Anyone believing quorum has formed may call it; nobody's funds move because of who calls it, only because quorum was independently reached. `caller` is recorded for observability only. Reads the round tally from the configured `watcher_registry` contract (via `contractimport!`, not the source crate) and requires `tally.votes_down >= quorum_threshold`, else `QuorumNotMet`. Idempotent per `(sla_id, round_id)`: a second call returns `AlreadySettled` with no transfer. Payout is `min(penalty_per_breach, remaining bond balance)`; if that would be `<= 0`, fails with `BondExhausted` before any transfer. |
+| `trigger_settlement(caller, sla_id, round_id)` | **none on `caller`** | Deliberately permissionless: `caller` is accepted but never passed to `require_auth`, and is not checked against any role. Anyone believing quorum has formed may call it; nobody's funds move because of who calls it, only because quorum was independently reached. `caller` is not stored and is not part of the `SettlementPaid` event; it is visible only as an argument of the transaction itself. Reads the round tally from the configured `watcher_registry` contract (via `contractimport!`, not the source crate) and requires `tally.votes_down >= quorum_threshold`, else `QuorumNotMet`. Idempotent per `(sla_id, round_id)`: a second call returns `AlreadySettled` with no transfer. Payout is `min(penalty_per_breach, remaining bond balance)`; if that would be `<= 0`, fails with `BondExhausted` before any transfer. |
 | `is_round_settled(sla_id, round_id)` | none | Read. |
 | `cancel_sla(caller, sla_id)` | `caller` must equal the SLA's `provider` | Marks the SLA `Cancelled`. Does not touch the bond balance. |
-| `withdraw_remaining_bond(caller, sla_id)` | `caller` must equal the SLA's `provider` | Requires the SLA already be `Cancelled`; transfers the full remaining balance to `caller` and zeroes it. |
+| `withdraw_remaining_bond(caller, sla_id)` | `caller` must equal the SLA's `provider` | Requires the SLA already be `Cancelled` (`SlaNotActive` otherwise); transfers the full remaining balance to `caller` and zeroes it. A balance that is already `0` is rejected with `InvalidAmount` before any transfer, so a repeat call cannot emit a `BondWithdrawn` event with `amount: 0`. This zero-balance rejection was added in commit `99be8a1` (2026-09-28), after the Testnet deployment described in `evidence/testnet-2026-09-27.md` was built; that deployment does not contain it. |
 | `pause(caller)` / `unpause(caller)` | `caller` must be admin | Gates `create_sla` only. Existing SLAs can still be settled, cancelled, topped up, or withdrawn while paused; this is deliberate, not an oversight, so a pause cannot be used to strand a provider's or beneficiary's funds. |
 
 ### Events (`src/events.rs`)
@@ -137,12 +146,27 @@ uptime enforcement is out of scope for this version.
 | `SlaCancelled` | `sla_id: u64` | (none) |
 | `BondWithdrawn` | `sla_id: u64` | `amount: i128` |
 
-`SlaCreated` and `SettlementPaid`'s topic/data split above has been confirmed
-against real emitted Testnet events (see `slasettle-hub`'s indexer commit
-history). `BondToppedUp`, `SlaCancelled`, and `BondWithdrawn`'s split follows
-the same `#[topic]`-annotated-fields-are-topics pattern visible directly in
-`src/events.rs`, but has not been independently confirmed against a real
-emitted event of those three kinds as of this writing.
+The topic/data split for all five events above has been confirmed against
+real emitted Testnet events. `SlaCreated` and `SettlementPaid` were confirmed
+first (see `slasettle-hub`'s indexer commit history); `BondToppedUp`,
+`SlaCancelled` and `BondWithdrawn` were first observed on 2026-09-27 on the
+current Testnet deployment, with raw topics and data fetched directly through
+`getEvents`:
+
+| Event | Tx | Raw topics | Raw data |
+|---|---|---|---|
+| `bond_topped_up` | `50d35d47794844b90cf167102bd518db675c2cf9b6a42ccabbcb5f709c72ba60` | `["bond_topped_up","0"]` | `{"amount":"5000000"}` |
+| `sla_cancelled` | `25fb9d95f34c9f155bd039cbcd80e5ab88eec7049067bab415d74bd4eadda6e8` | `["sla_cancelled","1"]` | `{}` |
+| `bond_withdrawn` | `f2d1be379addfe39a2ab0fc6f3933be1e55b00c01dd3b85d1b104741a06f3173` | `["bond_withdrawn","1"]` | `{"amount":"20000000"}` |
+
+Source: `evidence/testnet-2026-09-27.md`. The same three events were fetched
+again on 2026-09-29 (a fresh read-only `getEvents` against the same
+deployment, decoded with the indexer's own `decodeEvent`) and matched:
+`slasettle-hub/evidence/parity-matrix-2026-09-29.md`, section 4. As with the
+registry events, topic 0 is the snake_case event name and the `Topics` column
+lists only the topics after it. The raw values above are printed as recorded in
+the evidence file, where `u64` and `i128` values were rendered as decimal
+strings; the indexer's decoder receives them as `bigint`.
 
 ### Fixed: `quorum_threshold == 0`
 
@@ -152,6 +176,27 @@ emitted event of those three kinds as of this writing.
 would pass with zero watcher votes, defeating the quorum mechanism entirely
 for that SLA. `create_sla` now rejects `quorum_threshold == 0` at creation
 time.
+
+### Error codes are numbered per contract
+
+Both contracts number their errors from `1`, and the numbers collide with
+different meanings: `#3` is `NotAWatcher` in `watcher_registry` but
+`SlaNotActive` in `sla_vault`; `#4` is `DuplicateCheck` versus
+`AlreadySettled`; `#5` is `ContractPaused` versus `QuorumNotMet`. A failed
+call surfaces on the wire as `Error(Contract, #N)`, so `N` is only meaningful
+together with the contract that raised it.
+
+### Round IDs
+
+`round_id` is an opaque `u64` supplied by the caller of `submit_check` and
+`trigger_settlement`. Neither contract reads the ledger clock (`env.ledger()`
+is not used anywhere) and neither validates `round_id` against real time, so
+a registered watcher can vote on any `round_id` and anyone can call
+`trigger_settlement` for any `round_id`. The convention used by the off-chain
+code in `slasettle-hub` is `floor(unix_seconds / ROUND_LENGTH_SECONDS)` with a
+default of 60 seconds: the watcher daemon computes it from its own system
+clock, and the indexer computes it from the latest ledger's close time. That
+convention lives entirely off-chain.
 
 ### Cross-contract call
 

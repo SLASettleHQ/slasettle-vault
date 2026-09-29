@@ -124,8 +124,16 @@ This was a fresh deployment as of 2026-09-27, built from WASM hash
 `sla_vault` (`soroban-sdk` 27.0.6), which includes the `quorum_threshold
 == 0` fix. **It no longer matches the current `main`**, which has since
 moved to `soroban-sdk` 28.0.0 and builds a different `sla_vault.wasm` hash
-(see "Building" above). Both contracts are initialized, with 5 watchers
-registered. Full live evidence, including the quorum-zero rejection
+(see "Building" above). It also predates the zero-balance rejection in
+`withdraw_remaining_bond` (commit `99be8a1`, 2026-09-28): on the live
+contract a repeat withdrawal from an already-empty bond still succeeds as a
+no-op and emits a `BondWithdrawn` event with `amount: 0`, which is exactly the
+behavior recorded in `evidence/testnet-2026-09-27.md`. Both contracts are
+initialized, with 5 watchers registered. On 2026-09-29 the on-chain WASM of
+both contracts was re-fetched and its SHA-256 matched the hashes above, and a
+build of the current source exposes an identical public interface apart from
+one omitted storage-key type (see `slasettle-hub`'s
+`evidence/parity-matrix-2026-09-29.md`, section 6). Full live evidence, including the quorum-zero rejection
 confirmed against this exact deployment, real watcher votes, a real
 settlement, cancellation, withdrawal, and pause behavior, is in
 `evidence/testnet-2026-09-27.md`; that evidence is valid for the 27.0.6
@@ -160,7 +168,10 @@ project has already merged real dependency PRs, including the
 (`check, test, build`) is a required status check, force pushes and branch
 deletion are disabled. Required approving reviews are set to 0, since this
 is currently a solo-maintained repository; that is a deliberate choice for
-the current maintainer count, not an oversight.
+the current maintainer count, not an oversight. Protection is not enforced
+for repository administrators (`enforce_admins` is off, read from the
+branch-protection API on 2026-09-29), so an administrator can push to `main`
+directly.
 
 ## Known limitations, stated plainly
 
