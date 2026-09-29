@@ -1,7 +1,7 @@
 #![cfg(test)]
 
-use crate::{storage::Error, SlaVault, SlaVaultClient};
-use soroban_sdk::{testutils::Address as _, token, Address, BytesN, Env};
+use crate::{events::SettlementPaid, storage::Error, SlaVault, SlaVaultClient};
+use soroban_sdk::{testutils::{Address as _, Events as _}, token, Address, BytesN, Env, Event as _};
 
 /// Deploys a Stellar Asset Contract instance for use as the bond token in
 /// tests, via the SDK's own test helper for the built-in asset contract —
@@ -297,6 +297,62 @@ fn test_trigger_settlement_caps_payout_at_remaining_balance() {
     assert_eq!(result, Err(Ok(Error::BondExhausted)));
     let token_client = token::Client::new(&env, &token_id);
     assert_eq!(token_client.balance(&beneficiary), 1_000i128); // 500 + 500, capped correctly both times
+}
+
+#[test]
+fn test_trigger_settlement_pays_only_the_remaining_bond_when_it_is_below_the_penalty() {
+    // The one test that reaches `payout = min(penalty_per_breach, balance)`
+    // with 0 < balance < penalty. Bond 800 and penalty 500: the first
+    // settlement pays a full 500 and leaves 300, so the second must pay 300,
+    // not 500 and not an error.
+    let (env, client, admin, registry) = setup();
+    let (token_id, asset_client) = setup_token(&env, &admin);
+    let provider = Address::generate(&env);
+    let beneficiary = Address::generate(&env);
+    asset_client.mint(&provider, &10_000i128);
+    let sla_id = client.create_sla(
+        &provider,
+        &token_id,
+        &800i128,
+        &9990u32,
+        &3u32,
+        &500i128,
+        &beneficiary,
+    );
+    let token_client = token::Client::new(&env, &token_id);
+
+    register_and_vote_down(&env, &registry, &admin, sla_id, 1, 3);
+    client.trigger_settlement(&admin, &sla_id, &1u64);
+    assert_eq!(client.get_bond_balance(&sla_id), 300i128); // 0 < 300 < penalty 500
+    assert_eq!(token_client.balance(&beneficiary), 500i128);
+
+    register_and_vote_down(&env, &registry, &admin, sla_id, 2, 3);
+    client.trigger_settlement(&admin, &sla_id, &2u64);
+    // Read the events straight away: any later contract call replaces them.
+    let emitted = env.events().all().filter_by_contract(&client.address);
+
+    // Partial payout: exactly what was left.
+    assert_eq!(token_client.balance(&beneficiary), 800i128); // 500 + 300
+    assert_eq!(client.get_bond_balance(&sla_id), 0i128);
+    assert_eq!(token_client.balance(&client.address), 0i128);
+    assert!(client.is_round_settled(&sla_id, &2u64));
+    assert_eq!(
+        emitted,
+        [SettlementPaid {
+            sla_id,
+            round_id: 2u64,
+            payout: 300i128,
+            beneficiary: beneficiary.clone(),
+        }
+        .to_xdr(&env, &client.address)],
+    );
+
+    // And nothing more can be paid from an empty bond.
+    register_and_vote_down(&env, &registry, &admin, sla_id, 3, 3);
+    assert_eq!(
+        client.try_trigger_settlement(&admin, &sla_id, &3u64),
+        Err(Ok(Error::BondExhausted))
+    );
 }
 
 #[test]
