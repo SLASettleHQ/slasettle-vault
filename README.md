@@ -1,5 +1,14 @@
 # slasettle-vault
 
+[![CI](https://github.com/SLASettleHQ/slasettle-vault/actions/workflows/ci.yml/badge.svg)](https://github.com/SLASettleHQ/slasettle-vault/actions/workflows/ci.yml)
+
+**Links** (Stellar Testnet only)
+
+- Documentation: https://slasettle-docs.vercel.app (built from the hub repository)
+- Hub repository (frontend, SDK, indexer, watcher, docs): https://github.com/SLASettleHQ/slasettle-hub
+- Current Testnet contracts: [`watcher_registry`](https://stellar.expert/explorer/testnet/contract/CBKAQETJU3PLB54LJRSA7ZH2ZG4TBQHHDSWZ23R4VVTV7WBIX3QZBUZ6) (`CBKAQETJU3PLB54LJRSA7ZH2ZG4TBQHHDSWZ23R4VVTV7WBIX3QZBUZ6`), [`sla_vault`](https://stellar.expert/explorer/testnet/contract/CD4FSW2E2YLGNVPQ6T6DA6FKRK735HLMN676IEF2O5LKZYVDYHHDIIFL) (`CD4FSW2E2YLGNVPQ6T6DA6FKRK735HLMN676IEF2O5LKZYVDYHHDIIFL`); the explorer confirmed both, with the recorded creator and WASM hashes, on 2026-09-29. These were built with soroban-sdk 27.0.6; this repository's source uses 28.0.0 (see below)
+- Deployment evidence: [`evidence/testnet-2026-09-27.md`](./evidence/testnet-2026-09-27.md); cross-repository evidence in the hub's `evidence/index.md`
+
 Two Soroban contracts: `watcher_registry` and `sla_vault`. Together they let
 a Stellar-based service back its uptime promise with a real bond, checked by
 watchers (independent of the provider by design), and paid out when enough of
