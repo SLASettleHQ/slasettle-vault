@@ -69,8 +69,10 @@ This is a real, important gap to be aware of: the Testnet contracts
 described below under "Currently deployed" were built and deployed with
 `soroban-sdk` 27.0.6, **before** this upgrade. Rebuilding from the current
 `main` produces a different `sla_vault.wasm` (hash
-`2f958b86a2ca24fdbfc7f12536d2b8ce2160b5dcedb81b5c84c83fb80da5d42d`,
-confirmed via CI) than what is actually live on Testnet (hash
+`951f28b5a9edd705eaa03f17ada24f768e2942ca703abb1ac3c2f83a8b12ee5a` in the CI
+log of commit `8d9c517`, rustc 1.98.1; it was `2f958b86…` at `8449bd7`, and
+it changes with any source edit, including doc comments, because doc strings
+are embedded in the contract spec) than what is actually live on Testnet (hash
 `6909713244bf5837954b8d584343e2136bd7570a10da8db7b30533e613b67830`). The
 currently deployed contracts have not been redeployed against the
 28.0.0 build, and the live Testnet evidence recorded in this repository
