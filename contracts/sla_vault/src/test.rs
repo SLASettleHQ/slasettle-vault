@@ -2,8 +2,8 @@
 
 use crate::{events::SettlementPaid, storage::Error, SlaVault, SlaVaultClient};
 use soroban_sdk::{
-    testutils::{Address as _, Events as _},
-    token, Address, BytesN, Env, Event as _,
+    testutils::{Address as _, Events as _, MockAuth, MockAuthInvoke},
+    token, Address, BytesN, Env, Event as _, IntoVal,
 };
 
 /// Deploys a Stellar Asset Contract instance for use as the bond token in
@@ -515,4 +515,131 @@ fn test_paused_contract_still_allows_settlement_of_existing_sla() {
 
     let token_client = token::Client::new(&env, &token_id);
     assert_eq!(token_client.balance(&beneficiary), 500i128);
+}
+
+// ---------------------------------------------------------------------------
+// Signature enforcement.
+//
+// Every test above runs under `mock_all_auths()`, which makes every
+// `require_auth()` succeed, so those tests prove the contract's own role
+// checks but not that a missing signature is rejected. The tests below call
+// through `client.mock_auths(..)` with explicit, narrow authorizations instead.
+// A missing or wrong signature is a host error (`Err(Err(_))`), not one of the
+// contract's own `Error` values (`Err(Ok(_))`).
+// ---------------------------------------------------------------------------
+
+fn is_host_auth_error<T: core::fmt::Debug, E: core::fmt::Debug>(
+    result: &Result<Result<T, E>, Result<Error, soroban_sdk::InvokeError>>,
+) -> bool {
+    matches!(result, Err(Err(_)))
+}
+
+#[test]
+fn test_provider_methods_reject_a_missing_signature_and_change_nothing() {
+    let (env, client, admin, _registry) = setup();
+    let (sla_id, provider, _beneficiary, token_id) = create_test_sla(&env, &client, &admin);
+    let unsigned = client.mock_auths(&[]);
+    let token_client = token::Client::new(&env, &token_id);
+
+    assert!(is_host_auth_error(
+        &unsigned.try_top_up_bond(&provider, &sla_id, &100i128)
+    ));
+    assert!(is_host_auth_error(
+        &unsigned.try_cancel_sla(&provider, &sla_id)
+    ));
+    assert!(is_host_auth_error(&unsigned.try_create_sla(
+        &provider, &token_id, &500i128, &9990u32, &3u32, &100i128, &provider,
+    )));
+
+    // Nothing moved and nothing changed state.
+    assert_eq!(client.get_bond_balance(&sla_id), 1_000i128);
+    assert_eq!(token_client.balance(&client.address), 1_000i128);
+    assert_eq!(
+        client.get_sla(&sla_id).status,
+        crate::storage::SLAStatus::Active
+    );
+
+    // Once cancelled (with the right signature) an unsigned withdrawal is still
+    // rejected as a host error, and the bond stays in the vault.
+    client.cancel_sla(&provider, &sla_id);
+    assert!(is_host_auth_error(
+        &unsigned.try_withdraw_remaining_bond(&provider, &sla_id)
+    ));
+    assert_eq!(client.get_bond_balance(&sla_id), 1_000i128);
+}
+
+#[test]
+fn test_a_signature_from_someone_else_does_not_authorize_the_provider() {
+    let (env, client, admin, _registry) = setup();
+    let (sla_id, provider, _beneficiary, _token) = create_test_sla(&env, &client, &admin);
+    let attacker = Address::generate(&env);
+
+    // `attacker` signs an authorization for this exact call, but the call
+    // names `provider` as the caller, and only `provider` can authorize that.
+    let signed_by_attacker_auths = [MockAuth {
+        address: &attacker,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "cancel_sla",
+            args: (&provider, &sla_id).into_val(&env),
+            sub_invokes: &[],
+        },
+    }];
+    let signed_by_attacker = client.mock_auths(&signed_by_attacker_auths);
+    assert!(is_host_auth_error(
+        &signed_by_attacker.try_cancel_sla(&provider, &sla_id)
+    ));
+    assert_eq!(
+        client.get_sla(&sla_id).status,
+        crate::storage::SLAStatus::Active
+    );
+
+    // Control: the same call authorized by the provider succeeds, so the
+    // assertions above are about the signer and not about the call shape.
+    let signed_by_provider_auths = [MockAuth {
+        address: &provider,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "cancel_sla",
+            args: (&provider, &sla_id).into_val(&env),
+            sub_invokes: &[],
+        },
+    }];
+    let signed_by_provider = client.mock_auths(&signed_by_provider_auths);
+    signed_by_provider.cancel_sla(&provider, &sla_id);
+    assert_eq!(
+        client.get_sla(&sla_id).status,
+        crate::storage::SLAStatus::Cancelled
+    );
+}
+
+#[test]
+fn test_admin_methods_reject_a_missing_signature() {
+    let (env, client, admin, _registry) = setup();
+    let unsigned = client.mock_auths(&[]);
+
+    assert!(is_host_auth_error(&unsigned.try_pause(&admin)));
+    // Still not paused: an SLA can be created.
+    let (_sla_id, _provider, _beneficiary, _token) = create_test_sla(&env, &client, &admin);
+}
+
+#[test]
+fn test_trigger_settlement_needs_no_signature_and_no_role_from_its_caller() {
+    // The permissionless claim, tested with an unrelated caller and no
+    // authorization at all (the earlier settlement tests use `admin` under
+    // `mock_all_auths()`, which cannot tell "permissionless" from "admin
+    // allowed").
+    let (env, client, admin, registry) = setup();
+    let (sla_id, provider, beneficiary, token_id) = create_test_sla(&env, &client, &admin);
+    register_and_vote_down(&env, &registry, &admin, sla_id, 1, 3);
+    let stranger = Address::generate(&env);
+    assert!(stranger != admin && stranger != provider && stranger != beneficiary);
+
+    client
+        .mock_auths(&[])
+        .trigger_settlement(&stranger, &sla_id, &1u64);
+
+    let token_client = token::Client::new(&env, &token_id);
+    assert_eq!(token_client.balance(&beneficiary), 500i128);
+    assert!(client.is_round_settled(&sla_id, &1u64));
 }

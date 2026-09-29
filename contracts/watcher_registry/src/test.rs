@@ -231,3 +231,44 @@ fn test_get_round_tally_with_no_votes_returns_zeros() {
     assert_eq!(tally.votes_up, 0);
     assert_eq!(tally.votes_down, 0);
 }
+
+// Signature enforcement. The tests above run under `mock_all_auths()`, which
+// makes every `require_auth()` succeed. Here the calls go through
+// `client.mock_auths(&[])`, so no authorization is present; a missing
+// signature is a host error (`Err(Err(_))`), not a contract `Error`.
+
+#[test]
+fn test_admin_and_watcher_methods_reject_a_missing_signature() {
+    let (env, client, admin) = setup();
+    client.initialize(&admin);
+    let watcher = Address::generate(&env);
+    client.register_watcher(&admin, &watcher);
+    let unsigned = client.mock_auths(&[]);
+
+    let stranger = Address::generate(&env);
+    let register = unsigned.try_register_watcher(&admin, &stranger);
+    assert!(matches!(register, Err(Err(_))));
+    let pause = unsigned.try_pause(&admin);
+    assert!(matches!(pause, Err(Err(_))));
+    let vote = unsigned.try_submit_check(
+        &watcher,
+        &1u64,
+        &1u64,
+        &BytesN::from_array(&env, &[0u8; 32]),
+        &CheckStatus::Down,
+    );
+    assert!(matches!(vote, Err(Err(_))));
+
+    // Nothing changed: no new watcher, no vote, not paused.
+    assert!(!client.is_watcher(&stranger));
+    assert_eq!(client.get_watcher_count(), 1);
+    assert_eq!(client.get_round_tally(&1u64, &1u64).votes_down, 0);
+    assert!(!client.has_watcher_voted(&1u64, &1u64, &watcher));
+    client.submit_check(
+        &watcher,
+        &1u64,
+        &1u64,
+        &BytesN::from_array(&env, &[0u8; 32]),
+        &CheckStatus::Up,
+    );
+}
