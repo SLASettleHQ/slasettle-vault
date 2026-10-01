@@ -1,13 +1,20 @@
-# slasettle-vault
+<h1 align="center">SLASettle Vault</h1>
+<p align="center">Soroban smart contracts for the SLASettle protocol on Stellar</p>
 
-[![CI](https://github.com/SLASettleHQ/slasettle-vault/actions/workflows/ci.yml/badge.svg)](https://github.com/SLASettleHQ/slasettle-vault/actions/workflows/ci.yml)
+<p align="center">
+  <a href="https://github.com/SLASettleHQ/slasettle-vault/actions/workflows/ci.yml"><img src="https://github.com/SLASettleHQ/slasettle-vault/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://stellar.org"><img src="https://img.shields.io/badge/Stellar-Protocol_28-black" alt="Stellar"></a>
+  <a href="https://soroban.stellar.org"><img src="https://img.shields.io/badge/Soroban-Smart_Contracts-blue" alt="Soroban"></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT"></a>
+</p>
 
-**Links** (Stellar Testnet only)
+**Quick links** (Stellar Testnet only)
 
-- Documentation: https://slasettle-docs.vercel.app (built from the hub repository)
-- Hub repository (frontend, SDK, indexer, watcher, docs): https://github.com/SLASettleHQ/slasettle-hub
-- Current Testnet contracts: [`watcher_registry`](https://stellar.expert/explorer/testnet/contract/CDRNXUPCZTVZXKPWNBQZAYI6HYFNBDHRO2KNNJSMDVTEHFOM7LCMOYMF) (`CDRNXUPCZTVZXKPWNBQZAYI6HYFNBDHRO2KNNJSMDVTEHFOM7LCMOYMF`), [`sla_vault`](https://stellar.expert/explorer/testnet/contract/CDBFPYHJNYSIFXSMXF3BBDWPKHRS7SJFFEKMQ5WJXYTBMD4LFAG2CHLN) (`CDBFPYHJNYSIFXSMXF3BBDWPKHRS7SJFFEKMQ5WJXYTBMD4LFAG2CHLN`). These were built with soroban-sdk 28.0.0 and stellar-cli 28.1.0 on 2026-10-01.
-- Deployment evidence: [`evidence/testnet-2026-09-27.md`](./evidence/testnet-2026-09-27.md); cross-repository evidence in the hub's `evidence/index.md`
+- [Documentation](https://slasettle-docs.vercel.app) (built from the hub repository)
+- [SLASettle Hub](https://github.com/SLASettleHQ/slasettle-hub) (frontend, SDK, indexer, watcher, docs)
+- [`watcher_registry`](https://stellar.expert/explorer/testnet/contract/CDRNXUPCZTVZXKPWNBQZAYI6HYFNBDHRO2KNNJSMDVTEHFOM7LCMOYMF) `CDRNXUPCZTVZXKPWNBQZAYI6HYFNBDHRO2KNNJSMDVTEHFOM7LCMOYMF`
+- [`sla_vault`](https://stellar.expert/explorer/testnet/contract/CDBFPYHJNYSIFXSMXF3BBDWPKHRS7SJFFEKMQ5WJXYTBMD4LFAG2CHLN) `CDBFPYHJNYSIFXSMXF3BBDWPKHRS7SJFFEKMQ5WJXYTBMD4LFAG2CHLN`
+- [Protocol 28 deployment evidence](./evidence/testnet-2026-10-01.md)
 
 Two Soroban contracts: `watcher_registry` and `sla_vault`. Together they let
 a Stellar-based service back its uptime promise with a real bond, checked by
@@ -18,13 +25,13 @@ the watcher addresses were registered by the project admin for evidence runs,
 not by independent operators.
 
 Testnet only, for now. Nothing here has been audited, and there is a known,
-unresolved trust gap in `watcher_registry` — see below.
+unresolved trust gap in `watcher_registry` - see below.
 
 ## What each contract does
 
 `watcher_registry` tracks an eligible set of watchers and counts their votes
 on whether an endpoint was up or down for a given round. It has no concept of
-a quorum threshold and never will — it only counts.
+a quorum threshold and never will - it only counts.
 
 `sla_vault` holds a provider's bonded funds and decides what counts as a
 confirmed breach. It calls `watcher_registry` to read the raw vote count, then
@@ -88,7 +95,7 @@ contracts and exercise the real cross-contract call, not a mock.
 
 ## Deploying (testnet)
 
-Order matters — `sla_vault` depends on `watcher_registry`'s address.
+Order matters - `sla_vault` depends on `watcher_registry`'s address.
 
 ```bash
 # 1. Deploy and initialize the registry first.
@@ -116,10 +123,10 @@ echo "sla_vault: $VAULT_ID"
 
 ### Currently deployed on Testnet
 
-```
-watcher_registry: CDRNXUPCZTVZXKPWNBQZAYI6HYFNBDHRO2KNNJSMDVTEHFOM7LCMOYMF
-sla_vault:        CDBFPYHJNYSIFXSMXF3BBDWPKHRS7SJFFEKMQ5WJXYTBMD4LFAG2CHLN
-```
+| Contract | ID | Explorer |
+|---|---|---|
+| `watcher_registry` | `CDRNXUPCZTVZXKPWNBQZAYI6HYFNBDHRO2KNNJSMDVTEHFOM7LCMOYMF` | [View on Stellar Expert](https://stellar.expert/explorer/testnet/contract/CDRNXUPCZTVZXKPWNBQZAYI6HYFNBDHRO2KNNJSMDVTEHFOM7LCMOYMF) |
+| `sla_vault` | `CDBFPYHJNYSIFXSMXF3BBDWPKHRS7SJFFEKMQ5WJXYTBMD4LFAG2CHLN` | [View on Stellar Expert](https://stellar.expert/explorer/testnet/contract/CDBFPYHJNYSIFXSMXF3BBDWPKHRS7SJFFEKMQ5WJXYTBMD4LFAG2CHLN) |
 
 This is a fresh deployment as of 2026-10-01, built directly from the current `main` using `soroban-sdk` 28.0.0 and `stellar-cli` 28.1.0 on Protocol 28. 
 
