@@ -74,19 +74,7 @@ unrelated to it.
 **`soroban-sdk` is currently 28.0.0** (merged via Dependabot PR #1;
 `cargo test --workspace` still passes 52/52, `stellar contract build`
 still succeeds with zero linker errors, both confirmed in CI and locally).
-This is a real, important gap to be aware of: the Testnet contracts
-described below under "Currently deployed" were built and deployed with
-`soroban-sdk` 27.0.6, **before** this upgrade. Rebuilding from the current
-`main` produces a different `sla_vault.wasm` (hash
-`951f28b5a9edd705eaa03f17ada24f768e2942ca703abb1ac3c2f83a8b12ee5a` in the CI
-log of commit `8d9c517`, rustc 1.98.1; it was `2f958b86…` at `8449bd7`, and
-it changes with any source edit, including doc comments, because doc strings
-are embedded in the contract spec) than what is actually live on Testnet (hash
-`6909713244bf5837954b8d584343e2136bd7570a10da8db7b30533e613b67830`). The
-currently deployed contracts have not been redeployed against the
-28.0.0 build, and the live Testnet evidence recorded in this repository
-was gathered against the 27.0.6 build. Do not assume the two are
-equivalent without redeploying and re-verifying.
+The Testnet contracts described below under "Currently deployed" were built and deployed fresh from this exact source on 2026-10-01 using `soroban-sdk` 28.0.0 and `stellar-cli` 28.1.0, restoring strict source/deployment parity for Protocol 28.
 
 ## Testing
 
