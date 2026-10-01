@@ -15,7 +15,7 @@
   if you hit a toolchain error; it changes as `soroban-sdk` is upgraded.
 
 - The [Stellar CLI](https://github.com/stellar/stellar-cli). CI installs
-  27.0.0 specifically (matching the last verified live Testnet
+  28.1.0 specifically (matching the Soroban SDK 28 major version).
   deployment); a newer local install will generally still work for
   building and testing, but verify against a real deployment before
   relying on it for anything Testnet-facing.
