@@ -6,7 +6,7 @@
 
 - Documentation: https://slasettle-docs.vercel.app (built from the hub repository)
 - Hub repository (frontend, SDK, indexer, watcher, docs): https://github.com/SLASettleHQ/slasettle-hub
-- Current Testnet contracts: [`watcher_registry`](https://stellar.expert/explorer/testnet/contract/CBKAQETJU3PLB54LJRSA7ZH2ZG4TBQHHDSWZ23R4VVTV7WBIX3QZBUZ6) (`CBKAQETJU3PLB54LJRSA7ZH2ZG4TBQHHDSWZ23R4VVTV7WBIX3QZBUZ6`), [`sla_vault`](https://stellar.expert/explorer/testnet/contract/CD4FSW2E2YLGNVPQ6T6DA6FKRK735HLMN676IEF2O5LKZYVDYHHDIIFL) (`CD4FSW2E2YLGNVPQ6T6DA6FKRK735HLMN676IEF2O5LKZYVDYHHDIIFL`); the explorer confirmed both, with the recorded creator and WASM hashes, on 2026-09-29. These were built with soroban-sdk 27.0.6; this repository's source uses 28.0.0 (see below)
+- Current Testnet contracts: [`watcher_registry`](https://stellar.expert/explorer/testnet/contract/CDRNXUPCZTVZXKPWNBQZAYI6HYFNBDHRO2KNNJSMDVTEHFOM7LCMOYMF) (`CDRNXUPCZTVZXKPWNBQZAYI6HYFNBDHRO2KNNJSMDVTEHFOM7LCMOYMF`), [`sla_vault`](https://stellar.expert/explorer/testnet/contract/CDBFPYHJNYSIFXSMXF3BBDWPKHRS7SJFFEKMQ5WJXYTBMD4LFAG2CHLN) (`CDBFPYHJNYSIFXSMXF3BBDWPKHRS7SJFFEKMQ5WJXYTBMD4LFAG2CHLN`). These were built with soroban-sdk 28.0.0 and stellar-cli 28.1.0 on 2026-10-01.
 - Deployment evidence: [`evidence/testnet-2026-09-27.md`](./evidence/testnet-2026-09-27.md); cross-repository evidence in the hub's `evidence/index.md`
 
 Two Soroban contracts: `watcher_registry` and `sla_vault`. Together they let
@@ -129,34 +129,17 @@ echo "sla_vault: $VAULT_ID"
 ### Currently deployed on Testnet
 
 ```
-watcher_registry: CBKAQETJU3PLB54LJRSA7ZH2ZG4TBQHHDSWZ23R4VVTV7WBIX3QZBUZ6
-sla_vault:        CD4FSW2E2YLGNVPQ6T6DA6FKRK735HLMN676IEF2O5LKZYVDYHHDIIFL
+watcher_registry: CDRNXUPCZTVZXKPWNBQZAYI6HYFNBDHRO2KNNJSMDVTEHFOM7LCMOYMF
+sla_vault:        CDBFPYHJNYSIFXSMXF3BBDWPKHRS7SJFFEKMQ5WJXYTBMD4LFAG2CHLN
 ```
 
-This was a fresh deployment as of 2026-09-27, built from WASM hash
-`6909713244bf5837954b8d584343e2136bd7570a10da8db7b30533e613b67830` for
-`sla_vault` (`soroban-sdk` 27.0.6), which includes the `quorum_threshold
-== 0` fix. **It no longer matches the current `main`**, which has since
-moved to `soroban-sdk` 28.0.0 and builds a different `sla_vault.wasm` hash
-(see "Building" above). It also predates the zero-balance rejection in
-`withdraw_remaining_bond` (commit `99be8a1`, 2026-09-28): on the live
-contract a repeat withdrawal from an already-empty bond still succeeds as a
-no-op and emits a `BondWithdrawn` event with `amount: 0`, which is exactly the
-behavior recorded in `evidence/testnet-2026-09-27.md`. Both contracts are
-initialized, with 5 watchers registered. The current source never extends
-instance storage, so the live instances and WASM code entries were extended
-by hand on 2026-09-29 (no redeployment; hashes unchanged; live until about
-ledger 7932489 to 7932497). That is an operational mitigation, not a source
-fix; see `slasettle-hub/apps/docs/testnet-deployment.md`. On 2026-09-29 the on-chain WASM of
-both contracts was re-fetched and its SHA-256 matched the hashes above, and a
-build of the current source exposes an identical public interface apart from
-one omitted storage-key type (see `slasettle-hub`'s
-`evidence/parity-matrix-2026-09-29.md`, section 6). Full live evidence, including the quorum-zero rejection
-confirmed against this exact deployment, real watcher votes, a real
-settlement, cancellation, withdrawal, and pause behavior, is in
-`evidence/testnet-2026-09-27.md`; that evidence is valid for the 27.0.6
-build it was gathered against, not automatically for the current 28.0.0
-source.
+This is a fresh deployment as of 2026-10-01, built directly from the current `main` using `soroban-sdk` 28.0.0 and `stellar-cli` 28.1.0 on Protocol 28. 
+
+The WASM hashes for this deployment are:
+- `watcher_registry`: `5478788ea6c6ae46ddb85c399015139d3b883b7c253dd9abe50e096bf0bcdfb5`
+- `sla_vault`: `e177a76f3888575c3c9666689ab905e25a1b3001fb4d85045d05ee43fa298bcd`
+
+This deployment restores strict source/deployment parity, including the zero-balance rejection behavior in `withdraw_remaining_bond`. Both contracts are initialized, with 5 watchers registered. The previously gathered evidence in `evidence/testnet-2026-09-27.md` applies to the older 27.0.6 deployment; a new evidence file for the 28.0.0 deployment will replace it.
 
 The previously deployed pair below predates the quorum fix (and also
 predates the SDK bump) and is kept as historical evidence only, not as
