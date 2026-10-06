@@ -1,2 +1,6 @@
 target/
 
+
+# Local deployment record and soroban-sdk test snapshots (generated)
+.deployed-testnet.env
+**/test_snapshots/
