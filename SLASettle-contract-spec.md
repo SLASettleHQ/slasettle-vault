@@ -34,8 +34,9 @@ Two contracts:
   (`PERSISTENT_TTL_EXTEND_TO = 518_400` ledgers) whenever written, re-extended
   once within about a day of expiry. Instance storage is never extended by the
   contract code, and a read (for example `submit_check` checking `Watcher`) does
-  not refresh what it reads. The live instances were extended externally on
-  2026-09-29; see `slasettle-hub/apps/docs/testnet-deployment.md`.
+  not refresh what it reads. Extending instance storage is an operational step
+  outside the contract; see
+  [`slasettle-hub/apps/docs/testnet-deployment.md`](https://github.com/SLASettleHQ/slasettle-hub/blob/main/apps/docs/testnet-deployment.md).
 
 ### Types
 
@@ -71,8 +72,9 @@ symbol (`watcher_registered`, `watcher_removed`, `check_submitted`), and the
 carried as a map keyed by field name; an event with no data fields carries an
 empty map. `CheckStatus` is encoded as a one-element vec holding the variant's
 symbol (`["Up"]`, `["Down"]`). All three event kinds have been observed on
-real Testnet transactions and decoded; see
-`evidence/testnet-2026-09-27.md` (all 8 event kinds table).
+real Testnet transactions and decoded on the superseded 2026-09-27
+deployment; see `evidence/testnet-2026-09-27.md` (historical, all 8 event
+kinds table).
 
 ### Known limitation: no commit-reveal
 
@@ -153,7 +155,7 @@ The topic/data split for all five events above has been confirmed against
 real emitted Testnet events. `SlaCreated` and `SettlementPaid` were confirmed
 first (see `slasettle-hub`'s indexer commit history); `BondToppedUp`,
 `SlaCancelled` and `BondWithdrawn` were first observed on 2026-09-27 on the
-current Testnet deployment, with raw topics and data fetched directly through
+superseded Testnet deployment, with raw topics and data fetched directly through
 `getEvents`:
 
 | Event | Tx | Raw topics | Raw data |
@@ -162,10 +164,12 @@ current Testnet deployment, with raw topics and data fetched directly through
 | `sla_cancelled` | `25fb9d95f34c9f155bd039cbcd80e5ab88eec7049067bab415d74bd4eadda6e8` | `["sla_cancelled","1"]` | `{}` |
 | `bond_withdrawn` | `f2d1be379addfe39a2ab0fc6f3933be1e55b00c01dd3b85d1b104741a06f3173` | `["bond_withdrawn","1"]` | `{"amount":"20000000"}` |
 
-Source: `evidence/testnet-2026-09-27.md`. The same three events were fetched
-again on 2026-09-29 (a fresh read-only `getEvents` against the same
-deployment, decoded with the indexer's own `decodeEvent`) and matched:
-`slasettle-hub/evidence/parity-matrix-2026-09-29.md`, section 4. As with the
+Source: `evidence/testnet-2026-09-27.md` (historical). The same three events
+were fetched again on 2026-09-29 (a fresh read-only `getEvents` against the
+same superseded deployment, decoded with the indexer's own `decodeEvent`) and
+matched: [`slasettle-hub/evidence/parity-matrix-2026-09-29.md`](https://github.com/SLASettleHQ/slasettle-hub/blob/main/evidence/parity-matrix-2026-09-29.md),
+section 4. These event observations have not been repeated against the
+current 2026-10-01 deployment. As with the
 registry events, topic 0 is the snake_case event name and the `Topics` column
 lists only the topics after it. The raw values above are printed as recorded in
 the evidence file, where `u64` and `i128` values were rendered as decimal

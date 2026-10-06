@@ -108,7 +108,8 @@ These are documented in `README.md` and remain true as of this review:
   mechanism entirely for that SLA. `create_sla` now rejects
   `quorum_threshold == 0` with `Error::InvalidAmount`. Verified against a
   real deployed contract on Testnet, not just the local regression test:
-  see `evidence/testnet-2026-09-27.md`.
+  see `evidence/testnet-2026-09-27.md` (historical, superseded deployment)
+  and `evidence/testnet-2026-10-01.md` (current Protocol 28 deployment).
 - `withdraw_remaining_bond` previously succeeded as a silent no-op when
   the bond balance was already zero: no funds moved (the transfer was
   already guarded by `balance > 0`), but the call was still accepted and
@@ -140,6 +141,7 @@ summarizes.
 
 ## Supported versions
 
-Testnet only. There is no versioned release yet, and no mainnet deployment.
-This document will be updated once a release process and a mainnet target
-exist.
+Testnet only. The public `v0.1.0` release is a Testnet release. It is
+unaudited and is not a production deployment. There is no mainnet deployment
+and no mainnet support. This document will be updated once a mainnet target
+exists.

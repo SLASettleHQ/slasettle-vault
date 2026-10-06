@@ -49,14 +49,10 @@ Requires a current stable Rust and `soroban-sdk` 28.x. `soroban-sdk` was
 bumped from 27.0.6 to 28.0.0 by a merged Dependabot PR
 (SLASettleHQ/slasettle-vault#1); CI (which runs on `dtolnay/rust-toolchain@stable`)
 passed on that PR and on `main` afterward, so a current stable Rust is
-confirmed sufficient. The exact minimum `rust-version` for 28.0.0 has not
-been reconfirmed as precisely as it was for 27.0.6 (which declared
-`rust-version = "1.91.0"`, verified by testing 1.84.0/1.85.0/1.91.0
-directly against this dependency graph); 1.91.0 was not reverified against
-28.0.0 specifically. If you hit a toolchain error building this
-repository, check `soroban-sdk`'s current declared `rust-version` against
-your installed Rust rather than assuming either number in this paragraph
-still applies.
+confirmed sufficient. `soroban-sdk` 28.0.0 declares `rust-version = "1.91.0"`
+in its own workspace, so 1.91.0 is the minimum Rust it asks for. CI builds and
+tests with the current stable Rust. No other Rust versions have been tested
+here.
 
 `Cargo.lock` is committed. Current official Cargo guidance is "when in
 doubt, check Cargo.lock into version control," and this workspace produces
@@ -134,7 +130,7 @@ The WASM hashes for this deployment are:
 - `watcher_registry`: `5478788ea6c6ae46ddb85c399015139d3b883b7c253dd9abe50e096bf0bcdfb5`
 - `sla_vault`: `e177a76f3888575c3c9666689ab905e25a1b3001fb4d85045d05ee43fa298bcd`
 
-This deployment restores strict source/deployment parity, including the zero-balance rejection behavior in `withdraw_remaining_bond`. Both contracts are initialized, with 5 watchers registered. The previously gathered evidence in `evidence/testnet-2026-09-27.md` applies to the older 27.0.6 deployment; a new evidence file for the 28.0.0 deployment will replace it.
+This deployment restores strict source/deployment parity, including the zero-balance rejection behavior in `withdraw_remaining_bond`. Both contracts are initialized, with 5 watchers registered. The authoritative record for the current deployment is `evidence/testnet-2026-10-01.md`. `evidence/testnet-2026-09-27.md` is kept as historical evidence of the superseded 27.0.6 deployment and is not evidence for the current one.
 
 The previously deployed pair below predates the quorum fix (and also
 predates the SDK bump) and is kept as historical evidence only, not as
