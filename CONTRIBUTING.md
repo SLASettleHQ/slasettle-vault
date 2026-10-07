@@ -69,10 +69,9 @@ branch
 → merge once CI passes
 ```
 
-Required approving reviews are currently set to 0, since this repository
-is solo-maintained; that may change if it stops being solo-maintained,
-but it is not something a contributor should try to work around by
-finding a reviewer who doesn't actually understand the change.
+Required approving reviews are currently set to 0 for small-team velocity;
+all pull requests still strictly require passing automated CI status checks
+(`check, test, build`) before merging.
 
 ## Commit conventions
 
