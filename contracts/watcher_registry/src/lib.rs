@@ -8,8 +8,8 @@ mod test;
 
 use events::{CheckSubmitted, WatcherRegistered, WatcherRemoved};
 use soroban_sdk::{contract, contractimpl, Address, BytesN, Env};
-use storage::{DataKey, Error, RoundTally};
 pub use storage::CheckStatus;
+use storage::{DataKey, Error, RoundTally};
 
 fn require_admin(env: &Env, caller: &Address) -> Result<(), Error> {
     caller.require_auth();

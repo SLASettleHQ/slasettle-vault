@@ -131,7 +131,13 @@ fn test_submit_check_success_updates_tally() {
     let watcher = Address::generate(&env);
     client.register_watcher(&admin, &watcher);
 
-    client.submit_check(&watcher, &1u64, &1u64, &dummy_hash(&env), &CheckStatus::Down);
+    client.submit_check(
+        &watcher,
+        &1u64,
+        &1u64,
+        &dummy_hash(&env),
+        &CheckStatus::Down,
+    );
 
     let tally = client.get_round_tally(&1u64, &1u64);
     assert_eq!(tally.votes_down, 1);
@@ -183,7 +189,13 @@ fn test_submit_check_same_watcher_different_round_succeeds() {
     client.submit_check(&watcher, &1u64, &1u64, &dummy_hash(&env), &CheckStatus::Up);
     // Same watcher, same sla_id, next round — must succeed, this is not a
     // duplicate.
-    client.submit_check(&watcher, &1u64, &2u64, &dummy_hash(&env), &CheckStatus::Down);
+    client.submit_check(
+        &watcher,
+        &1u64,
+        &2u64,
+        &dummy_hash(&env),
+        &CheckStatus::Down,
+    );
 
     assert_eq!(client.get_round_tally(&1u64, &1u64).votes_up, 1);
     assert_eq!(client.get_round_tally(&1u64, &2u64).votes_down, 1);
@@ -197,13 +209,8 @@ fn test_submit_check_while_paused_fails() {
     client.register_watcher(&admin, &watcher);
     client.pause(&admin);
 
-    let result = client.try_submit_check(
-        &watcher,
-        &1u64,
-        &1u64,
-        &dummy_hash(&env),
-        &CheckStatus::Up,
-    );
+    let result =
+        client.try_submit_check(&watcher, &1u64, &1u64, &dummy_hash(&env), &CheckStatus::Up);
     assert_eq!(result, Err(Ok(Error::ContractPaused)));
 }
 

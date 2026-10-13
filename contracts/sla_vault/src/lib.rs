@@ -7,9 +7,7 @@ mod storage;
 mod test;
 
 mod watcher_registry_contract {
-    soroban_sdk::contractimport!(
-        file = "../../target/wasm32v1-none/release/watcher_registry.wasm"
-    );
+    soroban_sdk::contractimport!(file = "../../target/wasm32v1-none/release/watcher_registry.wasm");
 }
 
 use events::{BondToppedUp, BondWithdrawn, SettlementPaid, SlaCancelled, SlaCreated};
@@ -197,7 +195,9 @@ impl SlaVault {
 
         let balance_key = DataKey::BondBalance(sla_id);
         let balance: i128 = env.storage().persistent().get(&balance_key).unwrap_or(0);
-        env.storage().persistent().set(&balance_key, &(balance + amount));
+        env.storage()
+            .persistent()
+            .set(&balance_key, &(balance + amount));
         env.storage().persistent().extend_ttl(
             &balance_key,
             storage::PERSISTENT_TTL_THRESHOLD,
@@ -218,7 +218,12 @@ impl SlaVault {
     /// safe.
     ///
     /// Every step here is a real, distinct check. Do not collapse them.
-    pub fn trigger_settlement(env: Env, caller: Address, sla_id: u64, round_id: u64) -> Result<(), Error> {
+    pub fn trigger_settlement(
+        env: Env,
+        caller: Address,
+        sla_id: u64,
+        round_id: u64,
+    ) -> Result<(), Error> {
         // 1. Load config, must exist and be Active.
         let config: SLAConfig = env
             .storage()
@@ -231,7 +236,12 @@ impl SlaVault {
 
         // 2. Idempotency — one payout per round, ever.
         let settled_key = DataKey::SettledRounds(sla_id, round_id);
-        if env.storage().persistent().get(&settled_key).unwrap_or(false) {
+        if env
+            .storage()
+            .persistent()
+            .get(&settled_key)
+            .unwrap_or(false)
+        {
             return Err(Error::AlreadySettled);
         }
 
@@ -268,9 +278,15 @@ impl SlaVault {
         //    happen before the event, so a reader of the event can trust
         //    both are already true on-chain.
         let token_client = token::Client::new(&env, &config.token);
-        token_client.transfer(&env.current_contract_address(), &config.beneficiary, &payout);
+        token_client.transfer(
+            &env.current_contract_address(),
+            &config.beneficiary,
+            &payout,
+        );
 
-        env.storage().persistent().set(&balance_key, &(balance - payout));
+        env.storage()
+            .persistent()
+            .set(&balance_key, &(balance - payout));
         env.storage().persistent().set(&settled_key, &true);
         env.storage().persistent().extend_ttl(
             &settled_key,
