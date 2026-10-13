@@ -188,7 +188,7 @@ The authoritative record for the current deployment is [evidence/testnet-2026-10
 - `cargo check --workspace`
 - `cargo test --workspace`
 - `cargo clippy --workspace --all-targets --all-features`
-- `cargo fmt --check` (informational)
+- `cargo fmt --check`
 
 Branch protection requires pull requests and passing `check, test, build` CI status checks. Required approving reviews are currently set to 0 for solo-maintainer velocity. Protection is not enforced for repository administrators (`enforce_admins` is off), allowing direct administrative resolution if required.
 
