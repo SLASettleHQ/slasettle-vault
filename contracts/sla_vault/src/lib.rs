@@ -11,7 +11,7 @@ mod watcher_registry_contract {
 }
 
 use events::{BondToppedUp, BondWithdrawn, SettlementPaid, SlaCancelled, SlaCreated};
-use soroban_sdk::{contract, contractimpl, token, Address, Env};
+use soroban_sdk::{contract, contractimpl, token, Address, BytesN, Env};
 use storage::{DataKey, Error, SLAConfig, SLAStatus};
 
 fn require_admin(env: &Env, caller: &Address) -> Result<(), Error> {
@@ -39,6 +39,13 @@ fn require_not_paused(env: &Env) -> Result<(), Error> {
     Ok(())
 }
 
+fn bump_contract_ttl(env: &Env) {
+    env.storage().instance().extend_ttl(
+        storage::INSTANCE_TTL_THRESHOLD,
+        storage::INSTANCE_TTL_EXTEND_TO,
+    );
+}
+
 #[contract]
 pub struct SlaVault;
 
@@ -61,20 +68,32 @@ impl SlaVault {
             .set(&DataKey::WatcherRegistry, &watcher_registry);
         env.storage().instance().set(&DataKey::NextSlaId, &0u64);
 
+        bump_contract_ttl(&env);
+
         Ok(())
+    }
+
+    /// Public maintenance entrypoint. Extends instance and code TTL for this live
+    /// contract without requiring an authorized caller or modifying contract state.
+    pub fn extend_contract_ttl(env: Env) {
+        bump_contract_ttl(&env);
     }
 
     /// Auth: `provider`. Locks `bond_amount` of `token` into this contract
     /// and creates a new SLA record. Returns the assigned `sla_id`.
     ///
-    /// `uptime_target_bps` is stored for display only in this version — see
-    /// the doc comment on SLAConfig. Settlement is per-round, driven by
-    /// `penalty_per_breach`, not by an aggregate percentage calculation.
+    /// Validations:
+    /// - `bond_amount > 0` (Error::InvalidAmount)
+    /// - `penalty_per_breach > 0 && penalty_per_breach <= bond_amount` (Error::InvalidAmount)
+    /// - `uptime_target_bps in 1..=10_000` (Error::InvalidUptimeTarget)
+    /// - `quorum_threshold > 0` (Error::InvalidQuorum)
+    /// - `quorum_threshold <= watcher_registry.get_watcher_count()` (Error::InvalidQuorum, also fails if watcher_count == 0)
     #[allow(clippy::too_many_arguments)]
     pub fn create_sla(
         env: Env,
         provider: Address,
         token: Address,
+        endpoint_hash: BytesN<32>,
         bond_amount: i128,
         uptime_target_bps: u32,
         quorum_threshold: u32,
@@ -83,6 +102,7 @@ impl SlaVault {
     ) -> Result<u64, Error> {
         provider.require_auth();
         require_not_paused(&env)?;
+        bump_contract_ttl(&env);
 
         if bond_amount <= 0 {
             return Err(Error::InvalidAmount);
@@ -90,20 +110,26 @@ impl SlaVault {
         if penalty_per_breach <= 0 || penalty_per_breach > bond_amount {
             return Err(Error::InvalidAmount);
         }
-        // trigger_settlement checks `tally.votes_down < quorum_threshold`.
-        // votes_down is a u32 and can never be less than 0, so a
-        // quorum_threshold of 0 would make that comparison always false,
-        // and settlement would pass with zero votes, defeating quorum
-        // entirely.
+        if uptime_target_bps == 0 || uptime_target_bps > 10_000 {
+            return Err(Error::InvalidUptimeTarget);
+        }
         if quorum_threshold == 0 {
-            return Err(Error::InvalidAmount);
+            return Err(Error::InvalidQuorum);
         }
 
-        // Standard SAC pattern: the provider's transaction already carries
-        // the auth entry for this transfer (from require_auth above plus
-        // the transaction's own signature), no separate approve step.
+        let registry_address: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::WatcherRegistry)
+            .ok_or(Error::NotAuthorized)?;
+        let registry_client = watcher_registry_contract::Client::new(&env, &registry_address);
+        let watcher_count = registry_client.get_watcher_count();
+        if watcher_count == 0 || quorum_threshold > watcher_count {
+            return Err(Error::InvalidQuorum);
+        }
+
         let token_client = token::Client::new(&env, &token);
-        token_client.transfer(&provider, &env.current_contract_address(), &bond_amount);
+        token_client.transfer(&provider, env.current_contract_address(), &bond_amount);
 
         let sla_id: u64 = env
             .storage()
@@ -117,6 +143,7 @@ impl SlaVault {
         let config = SLAConfig {
             provider: provider.clone(),
             token: token.clone(),
+            endpoint_hash: endpoint_hash.clone(),
             bond_amount,
             uptime_target_bps,
             quorum_threshold,
@@ -124,10 +151,7 @@ impl SlaVault {
             beneficiary: beneficiary.clone(),
             status: SLAStatus::Active,
         };
-        // Per-SLA records go in persistent storage, not instance storage —
-        // instance storage is for small, contract-wide singletons, and this
-        // data grows by one entry per SLA created. Same pattern as
-        // watcher_registry's Watcher/Check/Tally keys.
+
         let sla_key = DataKey::Sla(sla_id);
         let balance_key = DataKey::BondBalance(sla_id);
         env.storage().persistent().set(&sla_key, &config);
@@ -147,7 +171,11 @@ impl SlaVault {
             sla_id,
             provider,
             token,
+            endpoint_hash,
             bond_amount,
+            uptime_target_bps,
+            quorum_threshold,
+            penalty_per_breach,
             beneficiary,
         }
         .publish(&env);
@@ -191,7 +219,7 @@ impl SlaVault {
         }
 
         let token_client = token::Client::new(&env, &config.token);
-        token_client.transfer(&caller, &env.current_contract_address(), &amount);
+        token_client.transfer(&caller, env.current_contract_address(), &amount);
 
         let balance_key = DataKey::BondBalance(sla_id);
         let balance: i128 = env.storage().persistent().get(&balance_key).unwrap_or(0);
@@ -203,21 +231,14 @@ impl SlaVault {
             storage::PERSISTENT_TTL_THRESHOLD,
             storage::PERSISTENT_TTL_EXTEND_TO,
         );
+        bump_contract_ttl(&env);
 
         BondToppedUp { sla_id, amount }.publish(&env);
 
         Ok(())
     }
 
-    /// No `require_auth` on `caller` at all — this is the permissionless
-    /// keeper function, deliberately. `caller` is accepted as an argument
-    /// but is not authorized, not stored in contract state, and not included
-    /// in `SettlementPaid`; it remains observable from the transaction
-    /// itself. They aren't moving any of their own funds. Anyone can call this the moment they believe quorum has
-    /// formed; the idempotency check below (step 2) is what makes that
-    /// safe.
-    ///
-    /// Every step here is a real, distinct check. Do not collapse them.
+    /// Permissionless keeper function.
     pub fn trigger_settlement(
         env: Env,
         caller: Address,
@@ -245,18 +266,16 @@ impl SlaVault {
             return Err(Error::AlreadySettled);
         }
 
-        // 3. Cross-contract call to watcher_registry for the raw tally.
-        //    sla_vault owns quorum interpretation; watcher_registry only
-        //    counts. Do not move this logic into the registry.
+        // 3. Cross-contract call to watcher_registry for the endpoint-bound raw tally.
         let registry_address: Address = env
             .storage()
             .instance()
             .get(&DataKey::WatcherRegistry)
             .ok_or(Error::NotAuthorized)?;
         let registry_client = watcher_registry_contract::Client::new(&env, &registry_address);
-        let tally = registry_client.get_round_tally(&sla_id, &round_id);
+        let tally = registry_client.get_round_tally(&sla_id, &round_id, &config.endpoint_hash);
 
-        // 4. Quorum check, sla_vault's judgment call.
+        // 4. Quorum check: tally.votes_down >= config.quorum_threshold
         if tally.votes_down < config.quorum_threshold {
             return Err(Error::QuorumNotMet);
         }
@@ -273,10 +292,7 @@ impl SlaVault {
             return Err(Error::BondExhausted);
         }
 
-        // 6. Transfer, decrement balance, mark settled, emit. In that
-        //    order — the balance write and the settled-flag write both
-        //    happen before the event, so a reader of the event can trust
-        //    both are already true on-chain.
+        // 6. Transfer, decrement balance, mark settled, emit.
         let token_client = token::Client::new(&env, &config.token);
         token_client.transfer(
             &env.current_contract_address(),
@@ -287,6 +303,12 @@ impl SlaVault {
         env.storage()
             .persistent()
             .set(&balance_key, &(balance - payout));
+        env.storage().persistent().extend_ttl(
+            &balance_key,
+            storage::PERSISTENT_TTL_THRESHOLD,
+            storage::PERSISTENT_TTL_EXTEND_TO,
+        );
+
         env.storage().persistent().set(&settled_key, &true);
         env.storage().persistent().extend_ttl(
             &settled_key,
@@ -294,8 +316,8 @@ impl SlaVault {
             storage::PERSISTENT_TTL_EXTEND_TO,
         );
 
-        // caller is intentionally not stored — it's informational only,
-        // captured in the transaction itself, not part of contract state.
+        bump_contract_ttl(&env);
+
         let _ = &caller;
 
         SettlementPaid {
@@ -318,10 +340,7 @@ impl SlaVault {
     }
 
     /// Auth: `caller`, must be the SLA's provider. Marks the SLA Cancelled.
-    /// This is a required, visible step before withdraw_remaining_bond will
-    /// allow anything — a provider cannot quietly drain their bond while
-    /// still advertising an active guarantee. Cancelling is a public state
-    /// change anyone watching the status page can see.
+    /// Only active SLAs may be cancelled; repeated calls fail with SlaNotActive.
     pub fn cancel_sla(env: Env, caller: Address, sla_id: u64) -> Result<(), Error> {
         caller.require_auth();
 
@@ -336,8 +355,18 @@ impl SlaVault {
             return Err(Error::NotAuthorized);
         }
 
+        if config.status != SLAStatus::Active {
+            return Err(Error::SlaNotActive);
+        }
+
         config.status = SLAStatus::Cancelled;
         env.storage().persistent().set(&sla_key, &config);
+        env.storage().persistent().extend_ttl(
+            &sla_key,
+            storage::PERSISTENT_TTL_THRESHOLD,
+            storage::PERSISTENT_TTL_EXTEND_TO,
+        );
+        bump_contract_ttl(&env);
 
         SlaCancelled { sla_id }.publish(&env);
 
@@ -345,9 +374,7 @@ impl SlaVault {
     }
 
     /// Auth: `caller`, must be the SLA's provider. Requires the SLA is
-    /// already Cancelled — reusing SlaNotActive as the error here on
-    /// purpose, since the condition is the same either way: "you can't
-    /// touch this bond while the SLA is still live."
+    /// already Cancelled.
     pub fn withdraw_remaining_bond(env: Env, caller: Address, sla_id: u64) -> Result<(), Error> {
         caller.require_auth();
 
@@ -367,14 +394,6 @@ impl SlaVault {
         let balance_key = DataKey::BondBalance(sla_id);
         let balance: i128 = env.storage().persistent().get(&balance_key).unwrap_or(0);
 
-        // A zero balance here (either nothing was ever left, or a previous
-        // withdraw already emptied it) is rejected outright rather than
-        // silently succeeding as a no-op. Live Testnet evidence showed a
-        // repeat call on an exhausted balance would otherwise still submit
-        // a real transaction and emit a BondWithdrawn event with amount: 0,
-        // which moves no funds but is misleading and wastes a fee. This
-        // matches the same zero-value rejection already used by
-        // create_sla and top_up_bond.
         if balance <= 0 {
             return Err(Error::InvalidAmount);
         }
@@ -382,6 +401,12 @@ impl SlaVault {
         let token_client = token::Client::new(&env, &config.token);
         token_client.transfer(&env.current_contract_address(), &caller, &balance);
         env.storage().persistent().set(&balance_key, &0i128);
+        env.storage().persistent().extend_ttl(
+            &balance_key,
+            storage::PERSISTENT_TTL_THRESHOLD,
+            storage::PERSISTENT_TTL_EXTEND_TO,
+        );
+        bump_contract_ttl(&env);
 
         BondWithdrawn {
             sla_id,
@@ -392,14 +417,11 @@ impl SlaVault {
         Ok(())
     }
 
-    /// Auth: Admin. Stops create_sla from accepting new SLAs. Deliberately
-    /// does not stop top_up_bond or trigger_settlement — an existing
-    /// provider should still be able to top up a bond, and a confirmed
-    /// breach should still settle, even while the contract is paused to new
-    /// business. Pausing halts new commitments, not existing obligations.
+    /// Auth: Admin. Stops create_sla from accepting new SLAs.
     pub fn pause(env: Env, caller: Address) -> Result<(), Error> {
         require_admin(&env, &caller)?;
         env.storage().instance().set(&DataKey::Paused, &true);
+        bump_contract_ttl(&env);
         Ok(())
     }
 
@@ -407,6 +429,7 @@ impl SlaVault {
     pub fn unpause(env: Env, caller: Address) -> Result<(), Error> {
         require_admin(&env, &caller)?;
         env.storage().instance().set(&DataKey::Paused, &false);
+        bump_contract_ttl(&env);
         Ok(())
     }
 }

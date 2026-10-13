@@ -1,5 +1,5 @@
 use crate::storage::CheckStatus;
-use soroban_sdk::{contractevent, Address};
+use soroban_sdk::{contractevent, Address, BytesN};
 
 /// Emitted when an address is added to the eligible watcher set.
 #[contractevent]
@@ -28,5 +28,6 @@ pub struct CheckSubmitted {
     #[topic]
     pub watcher: Address,
     pub round_id: u64,
+    pub endpoint_hash: BytesN<32>,
     pub status: CheckStatus,
 }

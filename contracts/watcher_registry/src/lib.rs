@@ -8,7 +8,7 @@ mod test;
 
 use events::{CheckSubmitted, WatcherRegistered, WatcherRemoved};
 use soroban_sdk::{contract, contractimpl, Address, BytesN, Env};
-pub use storage::CheckStatus;
+pub use storage::{CheckRecord, CheckStatus};
 use storage::{DataKey, Error, RoundTally};
 
 fn require_admin(env: &Env, caller: &Address) -> Result<(), Error> {
@@ -22,6 +22,13 @@ fn require_admin(env: &Env, caller: &Address) -> Result<(), Error> {
         return Err(Error::NotAuthorized);
     }
     Ok(())
+}
+
+fn bump_contract_ttl(env: &Env) {
+    env.storage().instance().extend_ttl(
+        storage::INSTANCE_TTL_THRESHOLD,
+        storage::INSTANCE_TTL_EXTEND_TO,
+    );
 }
 
 #[contract]
@@ -39,6 +46,7 @@ impl WatcherRegistry {
 
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage().instance().set(&DataKey::WatcherCount, &0u32);
+        bump_contract_ttl(&env);
 
         Ok(())
     }
@@ -48,6 +56,7 @@ impl WatcherRegistry {
     /// existing watcher shouldn't double-count WatcherCount.
     pub fn register_watcher(env: Env, caller: Address, watcher: Address) -> Result<(), Error> {
         require_admin(&env, &caller)?;
+        bump_contract_ttl(&env);
 
         let key = DataKey::Watcher(watcher.clone());
         if env.storage().persistent().has(&key) {
@@ -79,6 +88,7 @@ impl WatcherRegistry {
     /// address was not registered, symmetric with register_watcher.
     pub fn remove_watcher(env: Env, caller: Address, watcher: Address) -> Result<(), Error> {
         require_admin(&env, &caller)?;
+        bump_contract_ttl(&env);
 
         let key = DataKey::Watcher(watcher.clone());
         if !env.storage().persistent().has(&key) {
@@ -120,6 +130,7 @@ impl WatcherRegistry {
     pub fn pause(env: Env, caller: Address) -> Result<(), Error> {
         require_admin(&env, &caller)?;
         env.storage().instance().set(&DataKey::Paused, &true);
+        bump_contract_ttl(&env);
         Ok(())
     }
 
@@ -127,6 +138,7 @@ impl WatcherRegistry {
     pub fn unpause(env: Env, caller: Address) -> Result<(), Error> {
         require_admin(&env, &caller)?;
         env.storage().instance().set(&DataKey::Paused, &false);
+        bump_contract_ttl(&env);
         Ok(())
     }
 
@@ -137,28 +149,32 @@ impl WatcherRegistry {
             .unwrap_or(false)
     }
 
+    fn current_round(env: &Env) -> u64 {
+        env.ledger().timestamp() / storage::ROUND_LENGTH_SECONDS
+    }
+
+    /// Public view. Authoritative observation round derived from ledger close time.
+    pub fn get_current_round(env: Env) -> u64 {
+        Self::current_round(&env)
+    }
+
+    /// Public maintenance entrypoint. Extends instance and code TTL for this live
+    /// contract without requiring an authorized caller or modifying contract state.
+    pub fn extend_contract_ttl(env: Env) {
+        bump_contract_ttl(&env);
+    }
+
     /// Auth: `watcher` (the caller must be the watcher whose vote this is).
     ///
     /// Records one watcher's independent check for one round. Exactly one
     /// vote per watcher per round — a duplicate submission is rejected
-    /// outright, not silently overwritten, so a watcher cannot "correct"
+    /// outright, not silently overwritten, so a watcher cannot change
     /// their vote after seeing how the round is trending.
     ///
-    /// Known limitation, not solved in this version: because contract state
-    /// is public, a watcher who submits late can see how earlier watchers
-    /// voted before deciding what to submit. A dishonest watcher could copy
-    /// the emerging majority instead of reporting what they actually
-    /// observed. The standard fix is a commit-reveal scheme, which roughly
-    /// doubles the transaction count per watcher per round. This version
-    /// ships without it — see SLASettle-contract-spec.md for the full
-    /// reasoning. Revisit before this handles anything beyond a demo bond.
-    ///
-    /// `endpoint_hash` is accepted as an argument but this contract does not
-    /// persist or validate it: the check record holds only `status`, and
-    /// `CheckSubmitted` does not carry the hash. It is therefore observable
-    /// from the submitting transaction's invocation, not from contract
-    /// storage or events. Any cross-check against what a watcher actually
-    /// checked would have to read it from transaction history.
+    /// The stored CheckRecord captures the watcher's committed endpoint_hash
+    /// and observed status. A vote with an incorrect endpoint_hash consumes
+    /// that watcher's single check for that (sla_id, round_id), but updates
+    /// only the tally matching that endpoint_hash, ensuring isolation.
     pub fn submit_check(
         env: Env,
         watcher: Address,
@@ -173,6 +189,8 @@ impl WatcherRegistry {
             return Err(Error::ContractPaused);
         }
 
+        bump_contract_ttl(&env);
+
         if !env
             .storage()
             .persistent()
@@ -181,22 +199,32 @@ impl WatcherRegistry {
             return Err(Error::NotAWatcher);
         }
 
+        let curr_round = Self::current_round(&env);
+        if round_id == curr_round {
+            // Active observation round
+        } else if curr_round > 0 && round_id == curr_round - 1 {
+            // Grace window for immediately preceding round
+        } else {
+            return Err(Error::InvalidRound);
+        }
+
         let check_key = DataKey::Check(sla_id, round_id, watcher.clone());
         if env.storage().persistent().has(&check_key) {
             return Err(Error::DuplicateCheck);
         }
 
-        // endpoint_hash is intentionally unused: it is not stored and not
-        // emitted — see the doc comment above.
-        let _ = &endpoint_hash;
-        env.storage().persistent().set(&check_key, &status);
+        let record = CheckRecord {
+            endpoint_hash: endpoint_hash.clone(),
+            status: status.clone(),
+        };
+        env.storage().persistent().set(&check_key, &record);
         env.storage().persistent().extend_ttl(
             &check_key,
             storage::PERSISTENT_TTL_THRESHOLD,
             storage::PERSISTENT_TTL_EXTEND_TO,
         );
 
-        let tally_key = DataKey::Tally(sla_id, round_id);
+        let tally_key = DataKey::Tally(sla_id, round_id, endpoint_hash.clone());
         let mut tally: RoundTally = env
             .storage()
             .persistent()
@@ -217,6 +245,7 @@ impl WatcherRegistry {
             sla_id,
             watcher,
             round_id,
+            endpoint_hash,
             status,
         }
         .publish(&env);
@@ -224,17 +253,23 @@ impl WatcherRegistry {
         Ok(())
     }
 
-    /// Public view. Raw vote counts for a round — no quorum interpretation
-    /// happens here, by design. Returns zeros if no checks have landed yet
-    /// for this (sla_id, round_id), rather than erroring.
-    pub fn get_round_tally(env: Env, sla_id: u64, round_id: u64) -> RoundTally {
+    /// Public view. Raw vote counts for a round and endpoint_hash — no quorum
+    /// interpretation happens here, by design. Returns zeros if no checks have
+    /// landed yet for this (sla_id, round_id, endpoint_hash), rather than erroring.
+    pub fn get_round_tally(
+        env: Env,
+        sla_id: u64,
+        round_id: u64,
+        endpoint_hash: BytesN<32>,
+    ) -> RoundTally {
         env.storage()
             .persistent()
-            .get(&DataKey::Tally(sla_id, round_id))
+            .get(&DataKey::Tally(sla_id, round_id, endpoint_hash))
             .unwrap_or_default()
     }
 
-    /// Public view.
+    /// Public view. Checks whether a watcher has already submitted a check
+    /// for the specified (sla_id, round_id).
     pub fn has_watcher_voted(env: Env, sla_id: u64, round_id: u64, watcher: Address) -> bool {
         env.storage()
             .persistent()

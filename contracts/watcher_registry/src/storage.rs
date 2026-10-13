@@ -1,4 +1,4 @@
-use soroban_sdk::{contracterror, contracttype, Address};
+use soroban_sdk::{contracterror, contracttype, Address, BytesN};
 
 /// Storage keys for the watcher_registry contract.
 ///
@@ -12,7 +12,7 @@ pub enum DataKey {
     Watcher(Address),
     WatcherCount,
     Check(u64, u64, Address),
-    Tally(u64, u64),
+    Tally(u64, u64, BytesN<32>),
     Paused,
 }
 
@@ -25,9 +25,18 @@ pub enum CheckStatus {
     Down,
 }
 
-/// Running vote counts for one (sla_id, round_id) pair. This contract only
-/// counts. It has no concept of a quorum threshold — that judgment belongs
-/// entirely to sla_vault, and must stay there.
+/// A recorded check submitted by an eligible watcher for one round.
+/// Stores the watcher's committed endpoint_hash and observed status.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CheckRecord {
+    pub endpoint_hash: BytesN<32>,
+    pub status: CheckStatus,
+}
+
+/// Running vote counts for one (sla_id, round_id, endpoint_hash) tuple.
+/// This contract only counts. It has no concept of a quorum threshold — that
+/// judgment belongs entirely to sla_vault, and must stay there.
 #[contracttype]
 #[derive(Clone, Default, Debug)]
 pub struct RoundTally {
@@ -44,14 +53,11 @@ pub enum Error {
     NotAWatcher = 3,
     DuplicateCheck = 4,
     ContractPaused = 5,
+    InvalidRound = 6,
 }
 
-/// TTL extension window for persistent entries (Watcher, Check, Tally), in
-/// ledgers. Rounds are 60 seconds and ledgers close roughly every 5 seconds,
-/// so 60 / 5 = 12 ledgers per round. We extend far past a single round,
-/// covering roughly 30 days (~518400 ledgers), so a watcher's registration
-/// and a round's vote history don't silently expire between checks. This is
-/// a v1 constant, not tuned against real storage-rent cost data yet — revisit
-/// once there's real usage to measure against.
+pub const INSTANCE_TTL_EXTEND_TO: u32 = 518_400;
+pub const INSTANCE_TTL_THRESHOLD: u32 = 501_120; // extend once within ~1 day of expiry
 pub const PERSISTENT_TTL_EXTEND_TO: u32 = 518_400;
-pub const PERSISTENT_TTL_THRESHOLD: u32 = 518_400 - 17_280; // extend once within ~1 day of expiry
+pub const PERSISTENT_TTL_THRESHOLD: u32 = 501_120;
+pub const ROUND_LENGTH_SECONDS: u64 = 60;

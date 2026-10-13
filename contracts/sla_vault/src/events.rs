@@ -1,4 +1,4 @@
-use soroban_sdk::{contractevent, Address};
+use soroban_sdk::{contractevent, Address, BytesN};
 
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -8,7 +8,11 @@ pub struct SlaCreated {
     #[topic]
     pub provider: Address,
     pub token: Address,
+    pub endpoint_hash: BytesN<32>,
     pub bond_amount: i128,
+    pub uptime_target_bps: u32,
+    pub quorum_threshold: u32,
+    pub penalty_per_breach: i128,
     pub beneficiary: Address,
 }
 

@@ -1,4 +1,4 @@
-use soroban_sdk::{contracterror, contracttype, Address};
+use soroban_sdk::{contracterror, contracttype, Address, BytesN};
 
 #[contracttype]
 #[derive(Clone)]
@@ -29,10 +29,11 @@ pub enum SLAStatus {
 /// 99.9% monthly SLA" — true aggregate-uptime enforcement is out of scope
 /// for this version. See SLASettle-contract-spec.md.
 #[contracttype]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SLAConfig {
     pub provider: Address,
     pub token: Address,
+    pub endpoint_hash: BytesN<32>,
     pub bond_amount: i128,
     pub uptime_target_bps: u32,
     pub quorum_threshold: u32,
@@ -54,14 +55,16 @@ pub enum Error {
     InvalidAmount = 7,
     ContractPaused = 8,
     SlaNotFound = 9,
+    InvalidUptimeTarget = 10,
+    InvalidQuorum = 11,
 }
 
-/// TTL extension window for persistent entries (Sla, BondBalance,
-/// SettledRounds), in ledgers. Rounds are 60 seconds and ledgers close
-/// roughly every 5 seconds, so 60 / 5 = 12 ledgers per round. We extend far
-/// past a single round, covering roughly 30 days (~518400 ledgers), so an
-/// SLA's config and settlement history don't silently expire between checks.
-/// This is a v1 constant, not tuned against real storage-rent cost data yet —
-/// revisit once there's real usage to measure against.
+/// TTL constants for contract instance and persistent entries.
+/// ~30 days in ledgers (assuming ~5 seconds per ledger close):
+/// 30 * 24 * 3600 / 5 = 518_400 ledgers.
+/// Extend threshold is ~1 day before expiry (~17_280 ledgers):
+/// 518_400 - 17_280 = 501_120 ledgers.
+pub const INSTANCE_TTL_EXTEND_TO: u32 = 518_400;
+pub const INSTANCE_TTL_THRESHOLD: u32 = 501_120;
 pub const PERSISTENT_TTL_EXTEND_TO: u32 = 518_400;
-pub const PERSISTENT_TTL_THRESHOLD: u32 = 518_400 - 17_280; // extend once within ~1 day of expiry
+pub const PERSISTENT_TTL_THRESHOLD: u32 = 501_120;
