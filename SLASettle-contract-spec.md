@@ -1,224 +1,264 @@
-# SLASettle contract specification
+# SLASettle Contract Specification (v0.2)
 
-This document did not previously exist in this repository, even though three
-places in the source (`README.md`, `contracts/watcher_registry/src/lib.rs`,
-`contracts/sla_vault/src/storage.rs`) referenced it by name. Git history in
-both `slasettle-vault` and `slasettle-hub` was checked and shows no prior
-version of this file. It is reconstructed here directly from the current
-implemented contract source, not from memory or invented design intent.
-Where a claim below cannot be traced to a specific function or storage
-definition in the current `main` branch, it is not included.
+This specification documents the architecture, storage layouts, public interfaces, lifecycle rules, and security model of SLASettle's Soroban smart contracts on the Stellar network.
 
-Two contracts:
+Two smart contracts make up the core protocol:
 
-- `contracts/watcher_registry`: tracks an eligible set of watchers and counts
-  independent up/down votes for a given `(sla_id, round_id)`. It has no
-  concept of a quorum threshold and is not meant to.
-- `contracts/sla_vault`: holds a provider's bonded funds per SLA, reads the
-  raw vote tally from `watcher_registry`, applies a quorum judgment, and pays
-  a fixed penalty to the beneficiary when quorum is reached.
+- `contracts/watcher_registry`: Tracks eligible watchers, enforces one-vote-per-round submission freshness, and aggregates votes per endpoint commitment without interpreting quorum.
+- `contracts/sla_vault`: Holds bonded funds per SLA, enforces SLA parameters against registry capacity, queries endpoint-bound round tallies, evaluates quorum, and settles breach penalties.
 
-## `watcher_registry`
+---
 
-### Storage (`src/storage.rs`)
+## v0.2 Architectural Changes & Breaking Upgrades
 
-- `DataKey::Admin` (instance): the admin address set at `initialize`.
-- `DataKey::Watcher(Address)` (persistent): presence marks an address as an
-  eligible watcher.
-- `DataKey::WatcherCount` (instance): running count of registered watchers.
-- `DataKey::Check(sla_id, round_id, watcher)` (persistent): one watcher's
-  vote for one round, keyed to prevent duplicate submission.
-- `DataKey::Tally(sla_id, round_id)` (persistent): running `RoundTally { votes_up, votes_down }`.
-- `DataKey::Paused` (instance): pause flag.
-- Persistent entries are TTL-extended to roughly 30 days
-  (`PERSISTENT_TTL_EXTEND_TO = 518_400` ledgers) whenever written, re-extended
-  once within about a day of expiry. Instance storage is never extended by the
-  contract code, and a read (for example `submit_check` checking `Watcher`) does
-  not refresh what it reads. Extending instance storage is an operational step
-  outside the contract; see
-  [`slasettle-hub/apps/docs/testnet-deployment.md`](https://github.com/SLASettleHQ/slasettle-hub/blob/main/apps/docs/testnet-deployment.md).
+The v0.2 contract architecture introduces the following breaking interface and behavioral changes relative to v0.1:
 
-### Types
+| Component | v0.1 Design | v0.2 Design | Impact |
+|---|---|---|---|
+| **Endpoint Binding** | Unstored transaction parameter in `submit_check`; not bound to SLA or tallies | Authoritative `endpoint_hash: BytesN<32>` committed in `SLAConfig` and `create_sla`; tallies partitioned by `(sla_id, round_id, endpoint_hash)` | **Breaking**: Prevents cross-endpoint vote poisoning and enforces SLA commitment |
+| **Watcher Registry Tallies** | `get_round_tally(sla_id, round_id)` | `get_round_tally(sla_id, round_id, endpoint_hash)` | **Breaking**: Tally queries must specify the exact endpoint commitment |
+| **Observation Round Freshness** | Caller-supplied arbitrary `round_id`; no clock checks | Ledger-derived `round = env.ledger().timestamp() / 60`; rejects rounds outside `[current_round - 1, current_round]` with `Error::InvalidRound` | **Behavioral**: Watchers cannot vote on future or stale observation rounds |
+| **SLA Creation Parameters** | `create_sla` lacked `endpoint_hash`; accepted quorum > watcher set | `create_sla` requires `endpoint_hash`, validates `uptime_target_bps in 1..=10_000`, and enforces `0 < quorum_threshold <= watcher_count` | **Breaking**: Prevents misconfigured or impossible-to-settle SLAs |
+| **Cancellation Idempotency** | Calling `cancel_sla` on cancelled SLA succeeded repeatedly and emitted redundant events | Rejects second cancellation with `Error::SlaNotActive`; emits exactly one `SlaCancelled` event | **Behavioral**: Strict lifecycle transition |
+| **Contract TTL Management** | Instance storage was never renewed on-chain; live contracts could expire | Auto-renews instance/code and persistent TTL on state changes; adds public `extend_contract_ttl` maintenance entrypoint | **New**: Proactive archival prevention |
 
-- `CheckStatus`: `Up` or `Down`.
-- `Error`: `NotAuthorized = 1`, `AlreadyInitialized = 2`, `NotAWatcher = 3`,
-  `DuplicateCheck = 4`, `ContractPaused = 5`.
+---
 
-### Functions and authorization
+## 1. `contracts/watcher_registry`
 
-| Function | Auth | Notes |
+### 1.1 Storage Keys & TTL Policy
+
+- `DataKey::Admin` (instance): Administrator address initialized once.
+- `DataKey::Watcher(Address)` (persistent): Set membership indicating registered watcher status.
+- `DataKey::WatcherCount` (instance): Monotonic count of registered watchers.
+- `DataKey::Check(u64, u64, Address)` (persistent): Keyed by `(sla_id, round_id, watcher)`. Stores `CheckRecord { endpoint_hash, status }`.
+- `DataKey::Tally(u64, u64, BytesN<32>)` (persistent): Keyed by `(sla_id, round_id, endpoint_hash)`. Stores `RoundTally { votes_up, votes_down }`.
+- `DataKey::Paused` (instance): Emergency pause flag.
+
+**TTL Extension Parameters:**
+- `PERSISTENT_TTL_EXTEND_TO = 518_400` ledgers (~30 days at 5s/ledger).
+- `PERSISTENT_TTL_THRESHOLD = 501_120` ledgers (re-extended within ~1 day of expiry).
+- `INSTANCE_TTL_EXTEND_TO = 518_400` ledgers.
+- `INSTANCE_TTL_THRESHOLD = 501_120` ledgers.
+
+Every state write re-extends both the persistent entry and the contract instance/code TTL.
+
+### 1.2 Data Types
+
+```rust
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum CheckStatus {
+    Up,
+    Down,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CheckRecord {
+    pub endpoint_hash: BytesN<32>,
+    pub status: CheckStatus,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq, Default)]
+pub struct RoundTally {
+    pub votes_up: u32,
+    pub votes_down: u32,
+}
+
+#[contracterror]
+#[repr(u32)]
+pub enum Error {
+    NotAuthorized = 1,
+    AlreadyInitialized = 2,
+    NotAWatcher = 3,
+    DuplicateCheck = 4,
+    ContractPaused = 5,
+    InvalidRound = 6,
+}
+```
+
+### 1.3 Public Interface
+
+| Function | Auth | Description |
 |---|---|---|
-| `initialize(admin)` | `admin` | One-time; fails with `AlreadyInitialized` if called again. |
-| `register_watcher(caller, watcher)` | `caller` must be admin | Idempotent: registering an already-registered watcher does not double the count. |
-| `remove_watcher(caller, watcher)` | `caller` must be admin | Removing a watcher that was never registered is a no-op, not an error. |
-| `is_watcher(watcher)` | none | Read. |
-| `get_watcher_count()` | none | Read. |
-| `pause(caller)` / `unpause(caller)` | `caller` must be admin | Blocks `submit_check` while paused; does not block reads. |
-| `submit_check(watcher, sla_id, round_id, endpoint_hash, status)` | `watcher` | `watcher` must already be registered. Exactly one vote per `(sla_id, round_id, watcher)`; a duplicate is rejected with `DuplicateCheck`, never overwritten. `endpoint_hash` is accepted but **not stored and not emitted**: the check record holds only the `CheckStatus`, and `CheckSubmitted` carries no hash (`watcher_registry/src/lib.rs` discards it with `let _ = &endpoint_hash`). It is visible only as an argument of the submitting transaction, where a human or another system could read it from transaction history; this contract neither validates nor keeps it. (The doc comment above `submit_check` still says "stored on the check record"; that comment is stale.) |
-| `get_round_tally(sla_id, round_id)` | none | Read. |
-| `has_watcher_voted(sla_id, round_id, watcher)` | none | Read. |
+| `initialize(admin: Address)` | `admin` | One-time setup. Returns `Error::AlreadyInitialized` if called again. |
+| `register_watcher(caller: Address, watcher: Address)` | `caller` (admin) | Idempotently registers `watcher` and increments `WatcherCount`. |
+| `remove_watcher(caller: Address, watcher: Address)` | `caller` (admin) | Removes `watcher` and decrements `WatcherCount`. Safe no-op if unregistered. |
+| `is_watcher(watcher: Address) -> bool` | None | Read whether `watcher` is registered. |
+| `get_watcher_count() -> u32` | None | Returns total registered watchers. |
+| `pause(caller: Address)` / `unpause(caller: Address)` | `caller` (admin) | Halts incoming `submit_check` transactions while allowing reads and admin management. |
+| `get_current_round() -> u64` | None | Returns ledger close time divided by `ROUND_LENGTH_SECONDS` (60s). |
+| `extend_contract_ttl()` | None | Extends contract instance and code TTL to 518,400 ledgers without altering business state. |
+| `has_watcher_voted(sla_id: u64, round_id: u64, watcher: Address) -> bool` | None | Returns `true` if `watcher` has submitted a check for `(sla_id, round_id)`. |
+| `submit_check(watcher: Address, sla_id: u64, round_id: u64, endpoint_hash: BytesN<32>, status: CheckStatus)` | `watcher` | Validates watcher registration, round freshness, and single-vote constraint. Records vote and increments endpoint-partitioned tally. |
+| `get_round_tally(sla_id: u64, round_id: u64, endpoint_hash: BytesN<32>) -> RoundTally` | None | Reads vote tallies for `(sla_id, round_id, endpoint_hash)`. Returns `{ votes_up: 0, votes_down: 0 }` if unvoted. |
 
-### Events (`src/events.rs`)
+### 1.4 Observation Round & One-Vote Invariants
+
+1. **Ledger-Clock Round Derivation:**
+   - Observation round length is fixed: `ROUND_LENGTH_SECONDS = 60`.
+   - Current round: `curr_round = env.ledger().timestamp() / 60`.
+   - `submit_check` accepts strictly:
+     - `round_id == curr_round` (active observation window), OR
+     - `curr_round > 0 && round_id == curr_round - 1` (grace window for immediately preceding round).
+   - Any future round (`round_id > curr_round`) or older round (`round_id < curr_round - 1`) is rejected with `Error::InvalidRound`.
+2. **One-Vote-Per-Watcher Invariant:**
+   - Uniqueness key is strictly `DataKey::Check(sla_id, round_id, watcher)`.
+   - A watcher cannot cast multiple votes in a single round by varying `endpoint_hash`.
+   - Submitting an unexpected `endpoint_hash` consumes that watcher's single round submission, increments only that mismatched hash's isolated tally, and cannot be resubmitted.
+3. **Endpoint Tally Isolation:**
+   - Tallies are keyed strictly by `DataKey::Tally(sla_id, round_id, endpoint_hash)`.
+   - Votes submitted for hash A have zero effect on the tallies for hash B.
+
+### 1.5 Events
 
 | Event | Topics | Data |
 |---|---|---|
-| `WatcherRegistered` | `watcher: Address` | (none) |
-| `WatcherRemoved` | `watcher: Address` | (none) |
-| `CheckSubmitted` | `sla_id: u64`, `watcher: Address` | `round_id: u64`, `status: CheckStatus` |
+| `WatcherRegistered` | `watcher: Address` | None |
+| `WatcherRemoved` | `watcher: Address` | None |
+| `CheckSubmitted` | `sla_id: u64`, `watcher: Address` | `round_id: u64`, `endpoint_hash: BytesN<32>`, `status: CheckStatus` |
 
-On the wire, topic 0 of every event is the event's name as a snake_case
-symbol (`watcher_registered`, `watcher_removed`, `check_submitted`), and the
-`Topics` column above lists only the topics that follow it. Data fields are
-carried as a map keyed by field name; an event with no data fields carries an
-empty map. `CheckStatus` is encoded as a one-element vec holding the variant's
-symbol (`["Up"]`, `["Down"]`). All three event kinds have been observed on
-real Testnet transactions and decoded on the superseded 2026-09-27
-deployment; see `evidence/testnet-2026-09-27.md` (historical, all 8 event
-kinds table).
+---
 
-### Known limitation: no commit-reveal
+## 2. `contracts/sla_vault`
 
-Because contract state is public, a watcher who submits late can see how
-earlier watchers voted before deciding what to submit, and could copy the
-emerging majority instead of reporting what they actually observed. The
-standard fix is a commit-reveal scheme, which roughly doubles the
-transaction count per watcher per round. This version ships without it.
-Revisit before this handles anything beyond a demo bond.
+### 2.1 Storage Keys & TTL Policy
 
-## `sla_vault`
+- `DataKey::Admin` (instance): Administrator address.
+- `DataKey::WatcherRegistry` (instance): Target `watcher_registry` contract address.
+- `DataKey::NextSlaId` (instance): Incremental SLA ID counter.
+- `DataKey::Sla(u64)` (persistent): Stores `SLAConfig`.
+- `DataKey::BondBalance(u64)` (persistent): Stores `i128` remaining token bond balance.
+- `DataKey::SettledRounds(u64, u64)` (persistent): Keyed by `(sla_id, round_id)`. Value `bool` indicating completed settlement payout.
+- `DataKey::Paused` (instance): Gates new SLA creation.
 
-### Storage (`src/storage.rs`)
+All persistent writes and instance mutations execute TTL renewal with `518_400` ledgers extension.
 
-- `DataKey::Admin` (instance): admin address set at `initialize`.
-- `DataKey::WatcherRegistry` (instance): the registry contract address this
-  vault queries.
-- `DataKey::NextSlaId` (instance): monotonically increasing SLA id counter.
-- `DataKey::Sla(u64)` (persistent): the `SLAConfig` for that SLA id.
-- `DataKey::BondBalance(u64)` (persistent): remaining bond for that SLA id.
-- `DataKey::SettledRounds(sla_id, round_id)` (persistent): presence marks that
-  round as already settled, enforcing settlement idempotency.
-- `DataKey::Paused` (instance): pause flag, gates `create_sla` only (see
-  below).
-- Same persistent TTL policy as `watcher_registry`: extended to roughly 30
-  days on write.
+### 2.2 Data Types
 
-### `SLAConfig`
+```rust
+#[contracttype]
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum SLAStatus {
+    Active,
+    Cancelled,
+}
 
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SLAConfig {
+    pub provider: Address,
+    pub token: Address,
+    pub endpoint_hash: BytesN<32>,
+    pub bond_amount: i128,
+    pub uptime_target_bps: u32,
+    pub quorum_threshold: u32,
+    pub penalty_per_breach: i128,
+    pub beneficiary: Address,
+    pub status: SLAStatus,
+}
+
+#[contracterror]
+#[repr(u32)]
+pub enum Error {
+    NotAuthorized = 1,
+    AlreadyInitialized = 2,
+    SlaNotActive = 3,
+    AlreadySettled = 4,
+    QuorumNotMet = 5,
+    BondExhausted = 6,
+    InvalidAmount = 7,
+    ContractPaused = 8,
+    SlaNotFound = 9,
+    InvalidUptimeTarget = 10,
+    InvalidQuorum = 11,
+}
 ```
-provider: Address
-token: Address
-bond_amount: i128
-uptime_target_bps: u32
-quorum_threshold: u32
-penalty_per_breach: i128
-beneficiary: Address
-status: SLAStatus (Active | Cancelled)
-```
 
-`uptime_target_bps` is stored and can be displayed, but nothing in this
-contract computes an actual uptime percentage over a billing period or
-enforces that number. What actually happens is simpler: every time a round is
-independently confirmed down by quorum, a fixed penalty fires. Aggregate
-uptime enforcement is out of scope for this version.
+### 2.3 Public Interface
 
-### `Error`
-
-`NotAuthorized = 1`, `AlreadyInitialized = 2`, `SlaNotActive = 3`,
-`AlreadySettled = 4`, `QuorumNotMet = 5`, `BondExhausted = 6`,
-`InvalidAmount = 7`, `ContractPaused = 8`, `SlaNotFound = 9`.
-
-### Functions and authorization
-
-| Function | Auth | Notes |
+| Function | Auth | Description |
 |---|---|---|
-| `initialize(admin, watcher_registry)` | `admin` | One-time. |
-| `create_sla(provider, token, bond_amount, uptime_target_bps, quorum_threshold, penalty_per_breach, beneficiary)` | `provider` | Rejects `bond_amount <= 0`, `penalty_per_breach <= 0`, `penalty_per_breach > bond_amount`, and `quorum_threshold == 0` (see below), all as `InvalidAmount`. Transfers `bond_amount` of `token` from `provider` into the vault in the same call. Returns the new `sla_id`. Blocked while paused. |
-| `get_sla(sla_id)` / `get_bond_balance(sla_id)` | none | Reads. |
-| `top_up_bond(caller, sla_id, amount)` | `caller` must equal the SLA's `provider` | Adds `amount` of the SLA's token to the tracked balance; transfers it in from `caller`. |
-| `trigger_settlement(caller, sla_id, round_id)` | **none on `caller`** | Deliberately permissionless: `caller` is accepted but never passed to `require_auth`, and is not checked against any role. Anyone believing quorum has formed may call it; nobody's funds move because of who calls it, only because quorum was independently reached. `caller` is not stored and is not part of the `SettlementPaid` event; it is visible only as an argument of the transaction itself. Reads the round tally from the configured `watcher_registry` contract (via `contractimport!`, not the source crate) and requires `tally.votes_down >= quorum_threshold`, else `QuorumNotMet`. Idempotent per `(sla_id, round_id)`: a second call returns `AlreadySettled` with no transfer. Payout is `min(penalty_per_breach, remaining bond balance)`; if that would be `<= 0`, fails with `BondExhausted` before any transfer. |
-| `is_round_settled(sla_id, round_id)` | none | Read. |
-| `cancel_sla(caller, sla_id)` | `caller` must equal the SLA's `provider` | Marks the SLA `Cancelled`. Does not touch the bond balance. There is no status check, so cancelling an already cancelled SLA succeeds and emits another `SlaCancelled` event; no funds move. |
-| `withdraw_remaining_bond(caller, sla_id)` | `caller` must equal the SLA's `provider` | Requires the SLA already be `Cancelled` (`SlaNotActive` otherwise); transfers the full remaining balance to `caller` and zeroes it. A balance that is already `0` is rejected with `InvalidAmount` before any transfer, so a repeat call cannot emit a `BondWithdrawn` event with `amount: 0`. This zero-balance rejection was added in commit `99be8a1` (2026-09-28), after the Testnet deployment described in `evidence/testnet-2026-09-27.md` was built; that deployment does not contain it. |
-| `pause(caller)` / `unpause(caller)` | `caller` must be admin | Gates `create_sla` only. Existing SLAs can still be settled, cancelled, topped up, or withdrawn while paused; this is deliberate, not an oversight, so a pause cannot be used to strand a provider's or beneficiary's funds. |
+| `initialize(admin: Address, watcher_registry: Address)` | `admin` | Sets admin and registry contract bindings. |
+| `create_sla(provider: Address, token: Address, endpoint_hash: BytesN<32>, bond_amount: i128, uptime_target_bps: u32, quorum_threshold: u32, penalty_per_breach: i128, beneficiary: Address) -> Result<u64, Error>` | `provider` | Locks `bond_amount` tokens, validates parameters, and stores `SLAConfig`. Returns `sla_id`. |
+| `get_sla(sla_id: u64) -> Result<SLAConfig, Error>` | None | Returns stored SLA configuration. |
+| `get_bond_balance(sla_id: u64) -> i128` | None | Returns current remaining bond balance. |
+| `top_up_bond(caller: Address, sla_id: u64, amount: i128)` | `caller` (provider) | Deposits additional tokens to replenish bond balance. |
+| `trigger_settlement(caller: Address, sla_id: u64, round_id: u64)` | None (permissionless) | Queries registry tally for `config.endpoint_hash`. If `votes_down >= quorum_threshold`, transfers `min(penalty, balance)` to beneficiary. |
+| `is_round_settled(sla_id: u64, round_id: u64) -> bool` | None | Returns whether round has settled payout. |
+| `cancel_sla(caller: Address, sla_id: u64)` | `caller` (provider) | Transitions active SLA to `Cancelled`. Rejects if already cancelled with `Error::SlaNotActive`. |
+| `withdraw_remaining_bond(caller: Address, sla_id: u64)` | `caller` (provider) | Returns unbreached bond balance to provider once SLA is `Cancelled`. |
+| `pause(caller: Address)` / `unpause(caller: Address)` | `caller` (admin) | Halts new SLA creation (`create_sla`) while preserving settlements, cancellations, top-ups, and withdrawals. |
+| `extend_contract_ttl()` | None | Extends contract instance and code TTL to 518,400 ledgers. |
 
-### Events (`src/events.rs`)
+### 2.4 Settlement & Lifecycle Rules
+
+1. **Endpoint Commitment Binding:**
+   - `trigger_settlement` loads `config.endpoint_hash` from persistent contract storage.
+   - Caller cannot supply an endpoint hash. The SLA's committed hash is authoritative.
+   - Settlement queries `registry.get_round_tally(sla_id, round_id, config.endpoint_hash)`.
+   - Votes cast for another endpoint hash cannot trigger breach settlement.
+2. **Historical Valid-Round Settlement:**
+   - Round freshness checks apply strictly to `submit_check`, **not** to `trigger_settlement`.
+   - Any historical round that successfully gathered quorum while fresh remains eligible for settlement later, provided the SLA is active and the round was not already settled.
+3. **Quorum & Parameter Bounds:**
+   - `bond_amount > 0`
+   - `0 < penalty_per_breach <= bond_amount`
+   - `1 <= uptime_target_bps <= 10_000` (basis points; validated descriptive parameter)
+   - `0 < quorum_threshold <= watcher_registry.get_watcher_count()` (cannot exceed registry capacity)
+4. **Conservation of Funds:**
+   - Payout per breach is `min(penalty_per_breach, remaining_balance)`.
+   - Bond balance never drops below zero.
+   - Payouts stop cleanly with `Error::BondExhausted` when balance is 0.
+
+### 2.5 Events
 
 | Event | Topics | Data |
 |---|---|---|
-| `SlaCreated` | `sla_id: u64`, `provider: Address` | `token: Address`, `bond_amount: i128`, `beneficiary: Address` |
+| `SlaCreated` | `sla_id: u64`, `provider: Address` | `token: Address`, `endpoint_hash: BytesN<32>`, `bond_amount: i128`, `uptime_target_bps: u32`, `quorum_threshold: u32`, `penalty_per_breach: i128`, `beneficiary: Address` |
 | `BondToppedUp` | `sla_id: u64` | `amount: i128` |
 | `SettlementPaid` | `sla_id: u64`, `round_id: u64` | `payout: i128`, `beneficiary: Address` |
-| `SlaCancelled` | `sla_id: u64` | (none) |
+| `SlaCancelled` | `sla_id: u64` | None |
 | `BondWithdrawn` | `sla_id: u64` | `amount: i128` |
 
-The topic/data split for all five events above has been confirmed against
-real emitted Testnet events. `SlaCreated` and `SettlementPaid` were confirmed
-first (see `slasettle-hub`'s indexer commit history); `BondToppedUp`,
-`SlaCancelled` and `BondWithdrawn` were first observed on 2026-09-27 on the
-superseded Testnet deployment, with raw topics and data fetched directly through
-`getEvents`:
+---
 
-| Event | Tx | Raw topics | Raw data |
-|---|---|---|---|
-| `bond_topped_up` | `50d35d47794844b90cf167102bd518db675c2cf9b6a42ccabbcb5f709c72ba60` | `["bond_topped_up","0"]` | `{"amount":"5000000"}` |
-| `sla_cancelled` | `25fb9d95f34c9f155bd039cbcd80e5ab88eec7049067bab415d74bd4eadda6e8` | `["sla_cancelled","1"]` | `{}` |
-| `bond_withdrawn` | `f2d1be379addfe39a2ab0fc6f3933be1e55b00c01dd3b85d1b104741a06f3173` | `["bond_withdrawn","1"]` | `{"amount":"20000000"}` |
+## 3. Off-Chain Commitment Preimage Specification
 
-Source: `evidence/testnet-2026-09-27.md` (historical). The same three events
-were fetched again on 2026-09-29 (a fresh read-only `getEvents` against the
-same superseded deployment, decoded with the indexer's own `decodeEvent`) and
-matched: [`slasettle-hub/evidence/parity-matrix-2026-09-29.md`](https://github.com/SLASettleHQ/slasettle-hub/blob/main/evidence/parity-matrix-2026-09-29.md),
-section 4. These event observations have not been repeated against the
-current 2026-10-01 deployment. As with the
-registry events, topic 0 is the snake_case event name and the `Topics` column
-lists only the topics after it. The raw values above are printed as recorded in
-the evidence file, where `u64` and `i128` values were rendered as decimal
-strings; the indexer's decoder receives them as `bigint`.
+Contracts receive `BytesN<32>` commitments and never parse URLs or calculate SHA-256 hashes on-chain.
 
-### Fixed: `quorum_threshold == 0`
+The canonical off-chain commitment preimage is defined as:
+```
+endpoint_hash = SHA-256(UTF-8-encoded exact URL string)
+```
 
-`trigger_settlement` checks `tally.votes_down < config.quorum_threshold`.
-`votes_down` is a `u32` and can never be less than zero, so a
-`quorum_threshold` of zero made that comparison always false: settlement
-would pass with zero watcher votes, defeating the quorum mechanism entirely
-for that SLA. `create_sla` now rejects `quorum_threshold == 0` at creation
-time.
+**Preimage Rules:**
+- Scheme, host, port, path, and query string must match exactly byte-for-byte across SDK, provider registration, watcher HTTP checks, and indexer verification.
+- No automatic trimming, lowercasing of paths, or URL canonicalization inside contracts.
+- Cross-language utilities in Go (`crypto/sha256`) and TypeScript (`@noble/hashes/sha256` or Node `crypto.createHash('sha256')`) must evaluate the identical digest for the URL string.
 
-### Error codes are numbered per contract
+---
 
-Both contracts number their errors from `1`, and the numbers collide with
-different meanings: `#3` is `NotAWatcher` in `watcher_registry` but
-`SlaNotActive` in `sla_vault`; `#4` is `DuplicateCheck` versus
-`AlreadySettled`; `#5` is `ContractPaused` versus `QuorumNotMet`. A failed
-call surfaces on the wire as `Error(Contract, #N)`, so `N` is only meaningful
-together with the contract that raised it.
+## 4. Disclosed Protocol Limitations
 
-### Quorum and watcher-set behavior
+Reviewers, operators, and integrators must be aware of the following residual design boundaries:
 
-`create_sla` does not compare `quorum_threshold` with the number of registered
-watchers, so a threshold above that number can never be reached. Removing a
-watcher does not remove its earlier votes from any round's tally.
-
-### Round IDs
-
-`round_id` is an opaque `u64` supplied by the caller of `submit_check` and
-`trigger_settlement`. Neither contract reads the ledger clock (`env.ledger()`
-is not used anywhere) and neither validates `round_id` against real time, so
-a registered watcher can vote on any `round_id` and anyone can call
-`trigger_settlement` for any `round_id`. The convention used by the off-chain
-code in `slasettle-hub` is `floor(unix_seconds / ROUND_LENGTH_SECONDS)` with a
-default of 60 seconds: the watcher daemon computes it from its own system
-clock, and the indexer computes it from the latest ledger's close time. That
-convention lives entirely off-chain.
-
-### Cross-contract call
-
-`trigger_settlement` reads the round tally through
-`soroban_sdk::contractimport!` against the compiled `watcher_registry.wasm`
-interface, not by linking the `watcher_registry` source crate. Linking the
-source crate as a regular dependency previously caused a linker failure
-(duplicate `initialize`/`pause`/`unpause` symbols in the combined WASM), which
-is why the interface is imported rather than the crate depended on directly
-in non-test code. `watcher_registry` remains a `dev-dependency` used directly
-by the test suite, which exercises the real cross-contract call rather than a
-mock.
+1. **Endpoint Commitment Does Not Prove Truthful Observation:**
+   - Committing to `endpoint_hash` proves that watchers and providers agreed on the target URL.
+   - It does **not** cryptographically prove that a watcher executed a real HTTP GET check or reported truthful results.
+   - Fault tolerance and security depend on independent watcher operation and quorum assumptions.
+2. **Absence of Commit-Reveal:**
+   - Votes in `watcher_registry` are visible immediately on-chain and in the public transaction mempool.
+   - A malicious or lazy watcher could observe peer submissions before submitting their own vote for the round.
+   - Commit-reveal is deferred to future protocol iterations to maintain lower transaction costs and sub-minute settlement responsiveness.
+3. **Shared Global Watcher Set:**
+   - Watchers registered in `watcher_registry` are authorized to vote on any active SLA.
+   - Per-SLA watcher sub-committees are not implemented in v0.2.
+4. **Descriptive `uptime_target_bps`:**
+   - While strictly validated (`1..=10_000`), `uptime_target_bps` serves as descriptive service level metadata.
+   - Settlement remains discrete per-round penalty payouts rather than cumulative monthly uptime percentage calculations.
+5. **Testnet-Only Scope:**
+   - Contracts are deployed and evaluated on Stellar Testnet (Protocol 28).
+   - Parameters and rent TTL values have not been calibrated for mainnet production economic stakes.
