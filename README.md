@@ -190,7 +190,7 @@ The authoritative record for the current deployment is [evidence/testnet-2026-10
 - `cargo clippy --workspace --all-targets --all-features`
 - `cargo fmt --check` (informational)
 
-Branch protection requires pull requests and passing `check, test, build` CI status checks. Required approving reviews are currently set to 0 for small-team velocity. Protection is not enforced for repository administrators (`enforce_admins` is off), allowing direct administrative resolution if required.
+Branch protection requires pull requests and passing `check, test, build` CI status checks. Required approving reviews are currently set to 0 for solo-maintainer velocity. Protection is not enforced for repository administrators (`enforce_admins` is off), allowing direct administrative resolution if required.
 
 Dependabot (`.github/dependabot.yml`) checks `cargo` and `github-actions` weekly.
 

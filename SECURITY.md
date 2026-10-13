@@ -3,7 +3,7 @@
 `slasettle-vault` contains two Soroban contracts, `watcher_registry` and `sla_vault`.
 Both are deployed to Stellar Testnet only. **No independent third-party security
 audit has been performed on this code.** Everything in this document reflects an
-internal engineering review by the people building this repository, not an
+internal engineering review by the maintainer, not an
 external audit.
 
 ## Scope
@@ -22,7 +22,7 @@ reporting feature enabled, and no dedicated security contact address exists
 yet. If you find a vulnerability, please open a GitHub issue with the minimum
 detail needed to establish that a real issue exists (do not include a full
 exploit in a public issue) and ask for a private channel to share the rest.
-We will follow up from there. This is a real gap for a project at this stage,
+The maintainer will follow up from there. This is a real gap for a project at this stage,
 not a deliberate choice, and it should be closed before any production
 deployment.
 

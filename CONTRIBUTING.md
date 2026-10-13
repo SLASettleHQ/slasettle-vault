@@ -69,7 +69,7 @@ branch
 → merge once CI passes
 ```
 
-Required approving reviews are currently set to 0 for small-team velocity;
+Required approving reviews are currently set to 0 for solo-maintainer velocity;
 all pull requests still strictly require passing automated CI status checks
 (`check, test, build`) before merging.
 
