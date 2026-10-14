@@ -231,13 +231,24 @@ Contracts receive `BytesN<32>` commitments and never parse URLs or calculate SHA
 
 The canonical off-chain commitment preimage is defined as:
 ```
-endpoint_hash = SHA-256(UTF-8-encoded exact URL string)
+endpoint_hash = SHA-256("slasettle:endpoint:v1:" + trimmedEndpoint)
 ```
+where `trimmedEndpoint` is the input URL string with only leading and
+trailing ASCII whitespace (space, `\t`, `\n`, `\r`, `\f`, `\v`) removed.
 
 **Preimage Rules:**
-- Scheme, host, port, path, and query string must match exactly byte-for-byte across SDK, provider registration, watcher HTTP checks, and indexer verification.
-- No automatic trimming, lowercasing of paths, or URL canonicalization inside contracts.
-- Cross-language utilities in Go (`crypto/sha256`) and TypeScript (`@noble/hashes/sha256` or Node `crypto.createHash('sha256')`) must evaluate the identical digest for the URL string.
+- The ASCII trim is the only normalization applied. Scheme, host, port, path,
+  query string, and casing must otherwise match exactly byte-for-byte across
+  SDK, provider registration, watcher HTTP checks, and indexer verification —
+  no lowercasing, no URL canonicalization, no percent-decoding, no trailing-
+  slash normalization, inside contracts or off-chain tooling.
+- `"slasettle:endpoint:v1:"` is a fixed domain-separation prefix, concatenated
+  with `trimmedEndpoint` and UTF-8 encoded before hashing. It exists so this
+  preimage can never collide with a hash computed for an unrelated purpose
+  that happens to hash the same raw bytes.
+- Cross-language utilities in Go (`crypto/sha256`) and TypeScript (Node
+  `crypto.createHash('sha256')`) must evaluate the identical digest for the
+  same preimage.
 
 ---
 
