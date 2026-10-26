@@ -10,10 +10,10 @@ Soroban smart contracts for bonded service-level agreements on Stellar.
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Stellar Testnet](https://img.shields.io/badge/Stellar-Testnet-black.svg)](https://stellar.org)
 [![Soroban SDK](https://img.shields.io/badge/Soroban_SDK-29.0.1-blue.svg)](https://soroban.stellar.org)
-[![WASM Parity](https://img.shields.io/badge/WASM_Parity-Verified-brightgreen.svg)](evidence/testnet-2026-10-01.md)
+[![WASM Parity](https://img.shields.io/badge/WASM_Parity-Verified-brightgreen.svg)](evidence/testnet-v0.2-2026-10-26.md)
 [![Branch Protected](https://img.shields.io/badge/Branch_Protection-Active-success.svg)](https://github.com/SLASettleHQ/slasettle-vault/tree/main)
 
-[Documentation](https://slasettle-docs.vercel.app) · [SLASettle Hub](https://github.com/SLASettleHQ/slasettle-hub) · [Live App](https://slasettle-web.vercel.app) · [Testnet Contracts](#currently-deployed-on-testnet) · [Deployment Evidence](evidence/testnet-2026-10-01.md) · [Security](SECURITY.md) · [Contributing](CONTRIBUTING.md)
+[Documentation](https://slasettle-docs.vercel.app) · [SLASettle Hub](https://github.com/SLASettleHQ/slasettle-hub) · [Live App](https://slasettle-web.vercel.app) · [Testnet Contracts](#currently-deployed-on-testnet) · [Deployment Evidence](evidence/testnet-v0.2-2026-10-26.md) · [Security](SECURITY.md) · [Contributing](CONTRIBUTING.md)
 
 </div>
 
@@ -23,7 +23,7 @@ Soroban smart contracts for bonded service-level agreements on Stellar.
 
 SLASettle Vault contains the Soroban smart contracts that power the SLASettle protocol on Stellar. It provides the on-chain financial guarantees and verification logic needed to hold service providers accountable to their uptime commitments:
 
-- **`watcher_registry`**: Manages an authorized set of independent watchers and tallies their votes on whether monitored service endpoints were operational during discrete observation rounds.
+- **`watcher_registry`**: Manages an authorized watcher set and tallies votes on whether monitored service endpoints were operational during discrete observation rounds.
 - **`sla_vault`**: Escrows provider bond deposits, evaluates watcher consensus against configured SLA thresholds, and disburses penalty payouts to designated beneficiaries when downtime breaches are confirmed.
 
 ## Why it exists
@@ -32,7 +32,7 @@ Traditional SLAs rely on retroactive manual claims processes, proprietary provid
 
 SLASettle replaces manual claims with on-chain guarantees:
 - Providers lock real token bonds before agreements take effect.
-- Independent watcher nodes monitor endpoint availability round by round.
+- Registered watcher nodes monitor endpoint availability round by round. Watcher software can be operated independently; the current Testnet committee is project-controlled.
 - Breach penalties are paid out directly from the bond when watcher consensus confirms a failure.
 - Contract rules are public, deterministic, and verifiable on Stellar.
 
@@ -41,12 +41,12 @@ SLASettle replaces manual claims with on-chain guarantees:
 | Item | Details | Status |
 |---|---|---|
 | Target Network | Stellar Testnet (`https://soroban-testnet.stellar.org`) | Connected |
-| Stellar Protocol | Protocol 28 | Verified |
-| Soroban SDK | 28.0.0 | Pinned |
-| `watcher_registry` | `CDRNXUPCZTVZXKPWNBQZAYI6HYFNBDHRO2KNNJSMDVTEHFOM7LCMOYMF` | [Explorer](https://stellar.expert/explorer/testnet/contract/CDRNXUPCZTVZXKPWNBQZAYI6HYFNBDHRO2KNNJSMDVTEHFOM7LCMOYMF) |
-| `sla_vault` | `CDBFPYHJNYSIFXSMXF3BBDWPKHRS7SJFFEKMQ5WJXYTBMD4LFAG2CHLN` | [Explorer](https://stellar.expert/explorer/testnet/contract/CDBFPYHJNYSIFXSMXF3BBDWPKHRS7SJFFEKMQ5WJXYTBMD4LFAG2CHLN) |
+| Stellar Protocol | Protocol 29 at v0.2 deployment/cutover verification | Verified at deployment; Testnet may upgrade |
+| Soroban SDK | 29.0.1 | Pinned |
+| `watcher_registry` | `CDTIVQ6I77EMFP42522RIFKMSMJID3BDLNR5LPLJEGVAS4Q2DJDMN3DY` | [Explorer](https://stellar.expert/explorer/testnet/contract/CDTIVQ6I77EMFP42522RIFKMSMJID3BDLNR5LPLJEGVAS4Q2DJDMN3DY) |
+| `sla_vault` | `CA5R7V5IGMYOBRSAMP4R5MWURSNTY6565NSKEEVR6626PLC3VM2A3EZ2` | [Explorer](https://stellar.expert/explorer/testnet/contract/CA5R7V5IGMYOBRSAMP4R5MWURSNTY6565NSKEEVR6626PLC3VM2A3EZ2) |
 | WASM Bytecode Parity | Local build matches deployed bytecode byte-for-byte | Verified (Phase 8) |
-| Automated Tests | 52 passing workspace unit and cross-contract tests | Passing |
+| Automated Vault Tests | 72 passing workspace unit and cross-contract tests | Passing |
 | Third-Party Audit | Formal external security audit | Not performed |
 
 ## Contracts
@@ -107,10 +107,10 @@ flowchart TD
 
 | Verification Class | Scope | Evidence |
 |---|---|---|
-| WASM Bytecode Parity | Byte-for-byte match between local build and deployed contracts | [Phase 8 Toolchain & Deployment](https://github.com/SLASettleHQ/slasettle-hub/blob/main/evidence/phase8-toolchain-deployment-verification-2026-10-07.md) |
-| Live Testnet Writes | Create SLA, top-up bond, cancel SLA, withdraw remaining bond | [Phase 7 Live Write Evidence](https://github.com/SLASettleHQ/slasettle-hub/blob/main/evidence/phase7-live-write-verification-2026-10-07.md) |
-| Historical Settlement | On-chain settlement payout on Testnet | [Testnet Evidence 2026-10-01](evidence/testnet-2026-10-01.md) |
-| Automated Tests | 52 unit and cross-contract integration tests | `cargo test --workspace` |
+| v0.2 WASM Bytecode Parity | Byte-for-byte match between fresh local builds and deployed GREEN hashes | [v0.2 Testnet evidence](evidence/testnet-v0.2-2026-10-26.md) |
+| v0.2 Production Lifecycle | Create, top-up, quorum, settlement, cancellation, and withdrawal | [Hub production-cutover evidence](https://github.com/SLASettleHQ/slasettle-hub/blob/main/evidence/v0.2-production-cutover-2026-10-26.md) |
+| Historical BLUE Settlement | On-chain settlement payout on the legacy pair | [Testnet evidence 2026-10-01](evidence/testnet-2026-10-01.md) |
+| Automated Tests | 72 unit and cross-contract integration tests | `cargo test --workspace` |
 
 ## Quick start
 
@@ -172,14 +172,14 @@ stellar contract invoke --id $VAULT_ID --source-account <ADMIN> \
 
 | Contract | ID | Explorer |
 |---|---|---|
-| `watcher_registry` | `CDRNXUPCZTVZXKPWNBQZAYI6HYFNBDHRO2KNNJSMDVTEHFOM7LCMOYMF` | [View on Stellar Expert](https://stellar.expert/explorer/testnet/contract/CDRNXUPCZTVZXKPWNBQZAYI6HYFNBDHRO2KNNJSMDVTEHFOM7LCMOYMF) |
-| `sla_vault` | `CDBFPYHJNYSIFXSMXF3BBDWPKHRS7SJFFEKMQ5WJXYTBMD4LFAG2CHLN` | [View on Stellar Expert](https://stellar.expert/explorer/testnet/contract/CDBFPYHJNYSIFXSMXF3BBDWPKHRS7SJFFEKMQ5WJXYTBMD4LFAG2CHLN) |
+| `watcher_registry` | `CDTIVQ6I77EMFP42522RIFKMSMJID3BDLNR5LPLJEGVAS4Q2DJDMN3DY` | [View on Stellar Expert](https://stellar.expert/explorer/testnet/contract/CDTIVQ6I77EMFP42522RIFKMSMJID3BDLNR5LPLJEGVAS4Q2DJDMN3DY) |
+| `sla_vault` | `CA5R7V5IGMYOBRSAMP4R5MWURSNTY6565NSKEEVR6626PLC3VM2A3EZ2` | [View on Stellar Expert](https://stellar.expert/explorer/testnet/contract/CA5R7V5IGMYOBRSAMP4R5MWURSNTY6565NSKEEVR6626PLC3VM2A3EZ2) |
 
-WASM hashes (Protocol 28, `soroban-sdk` 28.0.0):
-- `watcher_registry`: `5478788ea6c6ae46ddb85c399015139d3b883b7c253dd9abe50e096bf0bcdfb5`
-- `sla_vault`: `e177a76f3888575c3c9666689ab905e25a1b3001fb4d85045d05ee43fa298bcd`
+Authoritative v0.2 WASM hashes (`soroban-sdk` 29.0.1; Protocol 29 at deployment/cutover verification):
+- `watcher_registry`: `e433b7e36580889b1a2aa94570ed7adee7e9048d4d211a10031ffcfa8fc53171`
+- `sla_vault`: `23ea6cdc28a11883fd5979c06fcdea3b3f68a5b2aa9f0bace855de0149d8ac79`
 
-The authoritative record for the current deployment is [evidence/testnet-2026-10-01.md](evidence/testnet-2026-10-01.md). Superseded deployment records are retained in `evidence/` for historical continuity.
+The current record is [evidence/testnet-v0.2-2026-10-26.md](evidence/testnet-v0.2-2026-10-26.md). The BLUE/v0.1 contracts remain live as rollback/legacy infrastructure but are not the current public stack. Their transaction history is preserved in [evidence/testnet-2026-10-01.md](evidence/testnet-2026-10-01.md).
 
 ## Continuous integration
 
@@ -190,7 +190,7 @@ The authoritative record for the current deployment is [evidence/testnet-2026-10
 - `cargo clippy --workspace --all-targets --all-features`
 - `cargo fmt --check`
 
-Branch protection requires pull requests and passing `check, test, build` CI status checks. Required approving reviews are currently set to 0 for solo-maintainer velocity. Protection is not enforced for repository administrators (`enforce_admins` is off), allowing direct administrative resolution if required.
+Live `main` protection requires pull requests and the strict, up-to-date `check, test, build` CI status check. Administrator enforcement is enabled. Force pushes and branch deletion are disabled. Required approving reviews are currently set to 0.
 
 Dependabot (`.github/dependabot.yml`) checks `cargo` and `github-actions` weekly.
 
@@ -208,7 +208,7 @@ See [`SECURITY.md`](SECURITY.md).
 
 1. **No commit-reveal vote protection**: Contract state is public; a late-voting watcher could observe earlier votes and copy the majority. A commit-reveal scheme is planned for a future upgrade.
 2. **Display-only uptime target**: `uptime_target_bps` is stored for agreement display; settlement is per-round based on fixed penalty amounts, not automated monthly aggregate calculations.
-3. **Shared watcher set**: A single registry-wide watcher set serves all SLAs in this deployment; provider-curated watcher sets are not supported in v1.
+3. **Shared watcher set**: A single registry-wide watcher set serves all SLAs in this deployment; provider-curated watcher sets are not supported in v0.2.
 4. **Operational TTL extension**: Contracts do not extend instance storage lifetimes automatically in code; rent/TTL must be monitored and renewed operationally.
 
 Full interface specifications and authorization rules are detailed in [`SLASettle-contract-spec.md`](SLASettle-contract-spec.md).

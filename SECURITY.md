@@ -109,7 +109,7 @@ These are documented in `README.md` and remain true as of this review:
   `quorum_threshold == 0` with `Error::InvalidAmount`. Verified against a
   real deployed contract on Testnet, not just the local regression test:
   see `evidence/testnet-2026-09-27.md` (historical, superseded deployment)
-  and `evidence/testnet-2026-10-01.md` (current Protocol 28 deployment).
+  and `evidence/testnet-2026-10-01.md` (historical Protocol 28 BLUE deployment).
 - `withdraw_remaining_bond` previously succeeded as a silent no-op when
   the bond balance was already zero: no funds moved (the transfer was
   already guarded by `balance > 0`), but the call was still accepted and
@@ -139,9 +139,14 @@ been run successfully against this repository as of this date. See
 `evidence/security-review-2026-09-28.md` for the full review this section
 summarizes.
 
+## Current deployment trust boundary
+
+- Current public deployment: v0.2 GREEN on Stellar Testnet, Protocol 29 at deployment/cutover verification.
+- The three current Testnet watcher identities are project-controlled, not independent third-party operators.
+- Endpoint commitment binds votes to an endpoint commitment and isolates tallies; it does not prove a truthful HTTP observation.
+- One shared global watcher registry serves every SLA in the deployment.
+- Commit-reveal is not implemented, so later voters can observe earlier on-chain votes.
+
 ## Supported versions
 
-Testnet only. The public `v0.1.0` release is a Testnet release. It is
-unaudited and is not a production deployment. There is no mainnet deployment
-and no mainnet support. This document will be updated once a mainnet target
-exists.
+Testnet only. The public `v0.2.0` release is a Testnet release. It has not undergone an independent third-party security audit. There is no mainnet deployment or mainnet support.
