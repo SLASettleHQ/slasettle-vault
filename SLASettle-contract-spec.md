@@ -271,5 +271,5 @@ Reviewers, operators, and integrators must be aware of the following residual de
    - While strictly validated (`1..=10_000`), `uptime_target_bps` serves as descriptive service level metadata.
    - Settlement remains discrete per-round penalty payouts rather than cumulative monthly uptime percentage calculations.
 5. **Testnet-Only Scope:**
-   - Contracts are deployed and evaluated on Stellar Testnet (Protocol 28).
+   - Contracts are deployed and evaluated on Stellar Testnet (Protocol 29 at v0.2 deployment/cutover verification; Testnet may subsequently upgrade).
    - Parameters and rent TTL values have not been calibrated for mainnet production economic stakes.
