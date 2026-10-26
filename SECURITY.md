@@ -17,14 +17,12 @@ document.
 
 ## Reporting a vulnerability
 
-This repository does not currently have GitHub's private vulnerability
-reporting feature enabled, and no dedicated security contact address exists
-yet. If you find a vulnerability, please open a GitHub issue with the minimum
-detail needed to establish that a real issue exists (do not include a full
-exploit in a public issue) and ask for a private channel to share the rest.
-The maintainer will follow up from there. This is a real gap for a project at this stage,
-not a deliberate choice, and it should be closed before any production
-deployment.
+This repository has GitHub's private vulnerability reporting feature
+enabled. Use the **"Report a vulnerability"** button under the repository's
+Security tab (or go directly to
+[github.com/SLASettleHQ/slasettle-vault/security/advisories/new](https://github.com/SLASettleHQ/slasettle-vault/security/advisories/new))
+to open a private advisory visible only to the maintainer. Do not open a
+public issue for a suspected vulnerability.
 
 ## Authorization model, as implemented
 
