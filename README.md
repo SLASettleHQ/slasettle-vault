@@ -9,7 +9,7 @@ Soroban smart contracts for bonded service-level agreements on Stellar.
 [![CI](https://github.com/SLASettleHQ/slasettle-vault/actions/workflows/ci.yml/badge.svg)](https://github.com/SLASettleHQ/slasettle-vault/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Stellar Testnet](https://img.shields.io/badge/Stellar-Testnet-black.svg)](https://stellar.org)
-[![Soroban SDK](https://img.shields.io/badge/Soroban_SDK-28.0.0-blue.svg)](https://soroban.stellar.org)
+[![Soroban SDK](https://img.shields.io/badge/Soroban_SDK-29.0.1-blue.svg)](https://soroban.stellar.org)
 [![WASM Parity](https://img.shields.io/badge/WASM_Parity-Verified-brightgreen.svg)](evidence/testnet-2026-10-01.md)
 [![Branch Protected](https://img.shields.io/badge/Branch_Protection-Active-success.svg)](https://github.com/SLASettleHQ/slasettle-vault/tree/main)
 
@@ -116,7 +116,7 @@ flowchart TD
 
 ### Prerequisites
 
-- Rust stable (1.91.0+ required by `soroban-sdk` 28.0.0)
+- Rust stable (1.91.0+ required by `soroban-sdk` 29.0.1)
 - `wasm32v1-none` target
 - `stellar-cli` 28.1.0+
 
