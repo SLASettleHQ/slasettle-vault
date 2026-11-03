@@ -20,7 +20,7 @@ The v0.2 contract architecture introduces the following breaking interface and b
 | **Observation Round Freshness** | Caller-supplied arbitrary `round_id`; no clock checks | Ledger-derived `round = env.ledger().timestamp() / 60`; rejects rounds outside `[current_round - 1, current_round]` with `Error::InvalidRound` | **Behavioral**: Watchers cannot vote on future or stale observation rounds |
 | **SLA Creation Parameters** | `create_sla` lacked `endpoint_hash`; accepted quorum > watcher set | `create_sla` requires `endpoint_hash`, validates `uptime_target_bps in 1..=10_000`, and enforces `0 < quorum_threshold <= watcher_count` | **Breaking**: Prevents misconfigured or impossible-to-settle SLAs |
 | **Cancellation Idempotency** | Calling `cancel_sla` on cancelled SLA succeeded repeatedly and emitted redundant events | Rejects second cancellation with `Error::SlaNotActive`; emits exactly one `SlaCancelled` event | **Behavioral**: Strict lifecycle transition |
-| **Contract TTL Management** | Instance storage was never renewed on-chain; live contracts could expire | Auto-renews instance/code and persistent TTL on state changes; adds public `extend_contract_ttl` maintenance entrypoint | **New**: Proactive archival prevention |
+| **Contract TTL Management** | Instance storage was never renewed on-chain; live contracts could expire | State-changing paths extend instance/code TTL and renew the persistent entries they update; public `extend_contract_ttl` entrypoints renew instance/code TTL | **New**: TTL maintenance, while untouched persistent entries still require monitoring |
 
 ---
 
@@ -30,7 +30,7 @@ The v0.2 contract architecture introduces the following breaking interface and b
 
 - `DataKey::Admin` (instance): Administrator address initialized once.
 - `DataKey::Watcher(Address)` (persistent): Set membership indicating registered watcher status.
-- `DataKey::WatcherCount` (instance): Monotonic count of registered watchers.
+- `DataKey::WatcherCount` (instance): Current number of registered watchers. Registering a new address increments it; removing a registered address decrements it.
 - `DataKey::Check(u64, u64, Address)` (persistent): Keyed by `(sla_id, round_id, watcher)`. Stores `CheckRecord { endpoint_hash, status }`.
 - `DataKey::Tally(u64, u64, BytesN<32>)` (persistent): Keyed by `(sla_id, round_id, endpoint_hash)`. Stores `RoundTally { votes_up, votes_down }`.
 - `DataKey::Paused` (instance): Emergency pause flag.
@@ -41,7 +41,7 @@ The v0.2 contract architecture introduces the following breaking interface and b
 - `INSTANCE_TTL_EXTEND_TO = 518_400` ledgers.
 - `INSTANCE_TTL_THRESHOLD = 501_120` ledgers.
 
-Every state write re-extends both the persistent entry and the contract instance/code TTL.
+State-changing registry paths extend the contract instance/code TTL. Each persistent write also extends the specific watcher, check, or tally entry it updates. The public `extend_contract_ttl()` entrypoint extends only the live instance and code; it does not renew all persistent entries.
 
 ### 1.2 Data Types
 

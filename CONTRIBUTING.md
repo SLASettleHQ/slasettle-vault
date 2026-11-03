@@ -14,27 +14,22 @@
   against this repository's dependency graph, and re-verify it yourself
   if you hit a toolchain error; it changes as `soroban-sdk` is upgraded.
 
-- The [Stellar CLI](https://github.com/stellar/stellar-cli). CI installs
-  28.1.0 specifically (matching the Soroban SDK 28 major version).
-  deployment); a newer local install will generally still work for
-  building and testing, but verify against a real deployment before
-  relying on it for anything Testnet-facing.
+- The [Stellar CLI](https://github.com/stellar/stellar-cli). CI pins
+  version 28.1.0. This CLI pin is independent of the contract dependency
+  version, which is `soroban-sdk 29.0.1` in the current workspace.
 
 ## Install, build, test
 
 ```bash
+stellar contract build
+cargo fmt --check
 cargo check --workspace
 cargo test --workspace
 cargo clippy --workspace --all-targets --all-features
-stellar contract build
 ```
 
-These are the same commands CI runs (`.github/workflows/ci.yml`).
-`cargo fmt --check` is also run in CI but is currently informational
-only (`continue-on-error`), because of pre-existing formatting drift
-that predates the workflow; running `cargo fmt` yourself on lines you
-actually touch is still good practice, just don't feel obligated to
-reformat lines you didn't otherwise change.
+These are the commands CI runs (`.github/workflows/ci.yml`), in dependency
+order. Formatting is a required check; failures fail the workflow.
 
 ## Repository structure
 
@@ -101,9 +96,9 @@ here should:
 - be cross-checked against `SECURITY.md` and, where relevant, against
   the real Testnet evidence in `evidence/` rather than local tests alone
 
-See `SECURITY.md` for how to report a vulnerability; there is currently
-no private reporting channel, which `SECURITY.md` states plainly rather
-than inventing one.
+See `SECURITY.md` for private vulnerability reporting. GitHub's private
+vulnerability reporting is enabled for this repository; use the Security
+tab or the private advisory link there, not a public issue.
 
 ## Documentation expectations
 
