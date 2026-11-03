@@ -25,8 +25,18 @@ jobs:
 
       - name: install stellar CLI 28.1.0
         run: |
-          curl -sL https://github.com/stellar/stellar-cli/releases/download/v28.1.0/stellar-cli-28.1.0-x86_64-unknown-linux-gnu.tar.gz \
-            | tar xz -C /usr/local/bin
+          set -euo pipefail
+          archive_path="${RUNNER_TEMP}/stellar-cli-28.1.0-x86_64-unknown-linux-gnu.tar.gz"
+          curl --fail --location --silent --show-error \
+            https://github.com/stellar/stellar-cli/releases/download/v28.1.0/stellar-cli-28.1.0-x86_64-unknown-linux-gnu.tar.gz \
+            --output "${archive_path}"
+          # SHA-256 from the official GitHub release asset metadata, independently checked against the downloaded archive.
+          printf '%s  %s\n' \
+            'c1680deee94301d33ada7a17f98411e642a4248c727afbd2e43050d345746462' \
+            "${archive_path}" \
+            | sha256sum --check --strict
+          tar --extract --gzip --file "${archive_path}" --directory /usr/local/bin
+          rm -- "${archive_path}"
 
       # Must run before cargo check/test/clippy: sla_vault's lib.rs uses
       # soroban_sdk::contractimport! to read watcher_registry's compiled
