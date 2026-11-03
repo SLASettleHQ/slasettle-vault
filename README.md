@@ -13,7 +13,7 @@ Soroban smart contracts for bonded service-level agreements on Stellar.
 [![WASM Parity](https://img.shields.io/badge/WASM_Parity-Verified-brightgreen.svg)](evidence/testnet-v0.2-2026-10-26.md)
 [![Branch Protected](https://img.shields.io/badge/Branch_Protection-Active-success.svg)](https://github.com/SLASettleHQ/slasettle-vault/tree/main)
 
-[Documentation](https://slasettle-docs.vercel.app) · [SLASettle Hub](https://github.com/SLASettleHQ/slasettle-hub) · [Live App](https://slasettle-web.vercel.app) · [Testnet Contracts](#currently-deployed-on-testnet) · [Deployment Evidence](evidence/testnet-v0.2-2026-10-26.md) · [Security](SECURITY.md) · [Contributing](CONTRIBUTING.md)
+[Documentation](https://slasettle-docs.vercel.app) · [Contract Architecture](docs/architecture.md) · [Testnet Operations](docs/operations.md) · [Contract Specification](SLASettle-contract-spec.md) · [SLASettle Hub](https://github.com/SLASettleHQ/slasettle-hub) · [Live App](https://slasettle-web.vercel.app) · [Testnet Contracts](#currently-deployed-on-testnet) · [Deployment Evidence](evidence/testnet-v0.2-2026-10-26.md) · [Security](SECURITY.md) · [Contributing](CONTRIBUTING.md)
 
 </div>
 
@@ -96,7 +96,8 @@ flowchart TD
     Provider["Service Provider"] -->|"create_sla (deposits bond)"| SLAVault["sla_vault (Soroban)"]
     Provider -->|"top_up_bond / cancel_sla"| SLAVault
     Watchers["Registered Watchers"] -->|"submit_check (round health)"| WatcherRegistry["watcher_registry (Soroban)"]
-    SLAVault -->|"get_round_tally / is_watcher"| WatcherRegistry
+    SLAVault -->|"get_watcher_count during create_sla"| WatcherRegistry
+    SLAVault -->|"get_round_tally(sla_id, round_id, endpoint_hash) during settlement"| WatcherRegistry
     Beneficiary["SLA Beneficiary"]
     Caller["Any Caller (Permissionless)"] -->|"trigger_settlement"| SLAVault
     SLAVault -->|"Penalty payout on breach"| Beneficiary
@@ -129,7 +130,7 @@ The workspace builds two WASM artifacts:
 - `target/wasm32v1-none/release/watcher_registry.wasm`
 - `target/wasm32v1-none/release/sla_vault.wasm`
 
-A committed `Cargo.lock` guarantees reproducible WASM compilation hashes.
+The committed `Cargo.lock` pins Rust dependency versions. Record the compiler and Stellar CLI versions too, then compare fresh WASM hashes with the [dated Testnet evidence](evidence/testnet-v0.2-2026-10-26.md); CI uses the rolling Rust stable channel.
 
 ## Testing
 
@@ -209,7 +210,7 @@ See [`SECURITY.md`](SECURITY.md).
 1. **No commit-reveal vote protection**: Contract state is public; a late-voting watcher could observe earlier votes and copy the majority. A commit-reveal scheme is planned for a future upgrade.
 2. **Display-only uptime target**: `uptime_target_bps` is stored for agreement display; settlement is per-round based on fixed penalty amounts, not automated monthly aggregate calculations.
 3. **Shared watcher set**: A single registry-wide watcher set serves all SLAs in this deployment; provider-curated watcher sets are not supported in v0.2.
-4. **Operational TTL extension**: Contracts do not extend instance storage lifetimes automatically in code; rent/TTL must be monitored and renewed operationally.
+4. **TTL operations**: State writes extend the persistent entries they touch, and public `extend_contract_ttl()` entrypoints extend contract instance and code TTL. They do not blanket-renew all persistent entries, so relevant key TTLs still require monitoring.
 
 Full interface specifications and authorization rules are detailed in [`SLASettle-contract-spec.md`](SLASettle-contract-spec.md).
 
